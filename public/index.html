@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%231d4ea0%22/%3E%3Cpath d=%22M9 16.5l4.5 4.5L23 11%22 stroke=%22white%22 stroke-width=%223.2%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E">
+<title>התאמת בנק וחשבוניות</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>התאמת בנק וחשבוניות</h1>
+      <p>חשבונות הבנק וכרטיסי האשראי מול החשבוניות והקבלות מהמייל. ה-AI מזהה את שם בית העסק ומתאים ביניהם.</p>
+    </div>
+    <div class="period" role="group" aria-label="תקופה">
+      <label for="pFrom">מתאריך<input type="date" id="pFrom"></label>
+      <label for="pTo">עד תאריך<input type="date" id="pTo"></label>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="btnMatch" type="button">בצע התאמה</button>
+      <button class="btn" id="btnExport" type="button">ייצוא לאקסל</button>
+      <button class="btn" id="btnSettings" type="button">הגדרות</button>
+    </div>
+  </header>
+
+  <div id="demoBanner"></div>
+  <section class="summary" id="summary" aria-label="סיכום"></section>
+  <div class="jobs" id="jobs"></div>
+
+  <nav class="tabs" role="tablist" aria-label="תצוגות">
+    <button class="tab" role="tab" id="tabbtn-board" data-tab="board" aria-selected="true" type="button">לוח עבודה</button>
+    <button class="tab" role="tab" id="tabbtn-report" data-tab="report" aria-selected="false" type="button">דוח חוסרים<span class="cnt" id="reportCnt"></span></button>
+    <button class="tab" role="tab" id="tabbtn-ask" data-tab="ask" aria-selected="false" type="button">שאל את ה-AI</button>
+  </nav>
+
+  <main>
+    <section id="tab-board" class="board" role="tabpanel" aria-labelledby="tabbtn-board">
+      <!-- עמודה 1 -->
+      <article class="col" id="colBank">
+        <div class="col-h">
+          <div class="t"><span class="step">1</span><h2>חשבונות בנק ואשראי</h2><span class="meta" id="bankMeta"></span></div>
+          <label class="drop" id="dropBank" for="fileBank">
+            <input type="file" id="fileBank" multiple accept=".csv,.xls,.xlsx,.xlsm,.html,.htm,.txt,.pdf">
+            <b>גרור לכאן קבצים מהבנק או מחברת האשראי</b><br>אקסל, CSV או PDF, כפי שהורדת מאתר הבנק. אפשר כמה קבצים יחד.
+          </label>
+          <div class="sources" id="sources"></div>
+          <div class="filters" id="txFilters">
+            <button class="chipf" data-txf="all" aria-pressed="true" type="button">הכל</button>
+            <button class="chipf" data-txf="missing" aria-pressed="false" type="button">חסר</button>
+            <button class="chipf" data-txf="complete" aria-pressed="false" type="button">מותאם</button>
+            <button class="chipf" data-txf="not_needed" aria-pressed="false" type="button">לא נדרש</button>
+            <input type="search" id="txSearch" placeholder="חיפוש בית עסק או סכום" aria-label="חיפוש בתנועות">
+          </div>
+        </div>
+        <div id="bankNotes"></div>
+        <ul class="list" id="txList"></ul>
+      </article>
+
+      <!-- עמודה 2 -->
+      <article class="col" id="colMail">
+        <div class="col-h">
+          <div class="t"><span class="step">2</span><h2>מייל</h2><span class="meta" id="mailMeta"></span></div>
+          <div class="actions">
+            <button class="btn primary" id="btnScan" type="button">סרוק חשבוניות ב-Gmail</button>
+            <button class="btn" id="btnRescan" type="button" title="קורא שוב גם מיילים שכבר נסרקו">סרוק מחדש</button>
+          </div>
+          <details class="adv">
+            <summary>מה נחפש במייל</summary>
+            <div class="inner">
+              <div class="field"><label for="gq">מילות החיפוש (בתחביר של Gmail). התאריכים נלקחים מהתקופה למעלה, ועוד חודש אחריה, כי חשבוניות מגיעות לפעמים באיחור.</label>
+                <textarea id="gq" rows="3"></textarea></div>
+            </div>
+          </details>
+          <div class="filters" id="mailFilters">
+            <button class="chipf" data-mf="all" aria-pressed="true" type="button">הכל</button>
+            <button class="chipf" data-mf="doc" aria-pressed="false" type="button">עם מסמך</button>
+            <button class="chipf" data-mf="link" aria-pressed="false" type="button">קישור בלבד</button>
+            <button class="chipf" data-mf="irrelevant" aria-pressed="false" type="button">לא רלוונטי</button>
+          </div>
+        </div>
+        <div id="mailNotes"></div>
+        <ul class="list" id="mailList"></ul>
+      </article>
+
+      <!-- עמודה 3 -->
+      <article class="col" id="colDocs">
+        <div class="col-h">
+          <div class="t"><span class="step">3</span><h2>מסמכים</h2><span class="meta" id="docsMeta"></span></div>
+          <label class="drop" id="dropDocs" for="fileDocs">
+            <input type="file" id="fileDocs" multiple accept=".pdf,image/jpeg,image/png,image/webp,image/gif">
+            <b>יש לך חשבונית שלא הגיעה במייל?</b><br>גרור PDF או צילום, וה-AI יקרא אותה.
+          </label>
+          <div class="filters" id="docFilters">
+            <button class="chipf" data-df="all" aria-pressed="true" type="button">הכל</button>
+            <button class="chipf" data-df="matched" aria-pressed="false" type="button">מותאם</button>
+            <button class="chipf" data-df="orphan" aria-pressed="false" type="button">ללא תנועה</button>
+            <input type="search" id="docSearch" placeholder="חיפוש ספק, מספר או סכום" aria-label="חיפוש במסמכים">
+          </div>
+        </div>
+        <div id="docNotes"></div>
+        <ul class="list" id="docList"></ul>
+      </article>
+    </section>
+
+    <section id="tab-report" class="report hidden" role="tabpanel" aria-labelledby="tabbtn-report"></section>
+
+    <section id="tab-ask" class="report hidden" role="tabpanel" aria-labelledby="tabbtn-ask">
+      <div class="card">
+        <div class="card-h"><h2>שאל את ה-AI על הנתונים</h2><span class="meta">התשובה מתבססת על התנועות והמסמכים שבתקופה שבחרת</span></div>
+        <div class="ai-box">
+          <div class="presets">
+            <button class="btn small" data-preset="סכם לי בקצרה מה חסר, ממי כדאי לבקש חשבוניות קודם, ומה הסכום הכולל שעדיין לא מגובה במסמך." type="button">מה הכי דחוף להשלים?</button>
+            <button class="btn small" data-preset="אילו ספקים חוזרים כל חודש, ובאילו חודשים חסרה מהם חשבונית?" type="button">ספקים קבועים</button>
+            <button class="btn small" data-preset="האם יש חיובים כפולים או חיובים חשודים שכדאי לבדוק?" type="button">חיובים כפולים</button>
+            <button class="btn small" data-preset="כמה מע&quot;מ מופיע בחשבוניות שנמצאו בתקופה, ומה ההוצאה לפי קטגוריה?" type="button">מע״מ והוצאות</button>
+          </div>
+          <div class="ask-row">
+            <textarea id="askQ" placeholder="לדוגמה: כמה שילמתי על דלק בספטמבר, ולאילו תדלוקים אין חשבונית?" aria-label="שאלה"></textarea>
+            <div class="actions" style="align-self:flex-end"><button class="btn primary" id="btnAsk" type="button">שאל</button><button class="btn hidden" id="btnAskStop" type="button">עצור</button></div>
+          </div>
+          <div class="ai-out" id="askOut"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="caps" id="caps"></footer>
+</div>
+<div id="loginRoot"></div>
+<div id="modalRoot"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
