@@ -8,7 +8,10 @@ import { sign, verify, randomId } from './lib/crypto.js';
 import * as store from './lib/store.js';
 import * as google from './lib/google.js';
 import { claude, parseJson, modelFor } from './lib/claude.js';
-import { extractFromEmail, extractFromFile } from './lib/extract.js';
+import { extractFromEmail, extractFromFile, saveEmailAttachment } from './lib/extract.js';
+import * as drive from './lib/drive.js';
+import * as monthly from './lib/monthly.js';
+import { israelToday, prevMonth, monthOf, isMonth } from './lib/report.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -50,9 +53,11 @@ const sessionOf = req => verify(cookies(req).sid);
 app.get('/auth/login', (req, res) => {
   const miss = missingConfig().filter(k => k.startsWith('GOOGLE') || k === 'SESSION_SECRET' || k === 'ALLOWED_EMAILS');
   if (miss.length) return res.redirect('/?setup=1');
-  const state = randomId(18), consent = req.query.consent === '1';
-  setCookie(res, 'ost', sign({ state, consent, exp: Date.now() + 10 * 60 * 1000 }), 600);
-  res.redirect(google.authUrl(state, { consent, loginHint: String(req.query.hint || '').slice(0, 200) }));
+  // add=send,drive: בקשה חד-פעמית להרשאות נוספות (דוח במייל, שמירה ב-Drive), כשמפעילים אותן בהגדרות
+  const add = [...new Set(String(req.query.add || '').split(',').concat(req.query.send === '1' ? ['send'] : []).filter(k => k in google.EXTRA_SCOPES))];
+  const state = randomId(18), consent = add.length > 0 || req.query.consent === '1';
+  setCookie(res, 'ost', sign({ state, consent, add, exp: Date.now() + 10 * 60 * 1000 }), 600);
+  res.redirect(google.authUrl(state, { consent, add, loginHint: String(req.query.hint || '').slice(0, 200) }));
 });
 
 app.get('/auth/callback', async (req, res) => {
@@ -72,7 +77,7 @@ app.get('/auth/callback', async (req, res) => {
       return res.redirect('/auth/login?consent=1&hint=' + encodeURIComponent(info.email));
     }
     setCookie(res, 'sid', sign({ email: info.email, name: info.name, exp: Date.now() + SESSION_DAYS * 864e5 }), SESSION_DAYS * 86400);
-    res.redirect('/');
+    res.redirect(st.add?.length ? '/?scopes=1' : '/');
   } catch (e){
     console.error('[auth]', e.message);
     fail(e.code || 'oauth_failed');
@@ -82,6 +87,15 @@ app.get('/auth/callback', async (req, res) => {
 app.post('/auth/logout', (req, res) => { setCookie(res, 'sid', '', 0); res.json({ ok: true }); });
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+// כתובת התזמון לדוח החודשי. שירות חיצוני (Google Apps Script) פונה אליה פעם ביום ומעיר את השרת.
+// השליחה עצמה קורית רק מה-10 בחודש, ורק פעם אחת לכל חודש.
+app.get('/cron/monthly-report', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!monthly.cronKeyOk(String(req.query.key || ''))) return res.status(404).json({ error: 'not_found' });
+  try { res.json({ ok: true, today: israelToday(), result: await monthly.runMonthlyForAll() }); }
+  catch (e){ console.error('[cron]', e.message); res.status(500).json({ ok: false, error: e.code || 'server_error' }); }
+});
 
 /* ---------- API ---------- */
 const api = express.Router();
@@ -104,7 +118,18 @@ const wrap = fn => async (req, res) => {
 };
 
 api.get('/me', wrap(async (req, res) => {
-  res.json({ email: req.user.email, name: req.user.name, gmail: await google.gmailStatus(req.user.email), ai: !!cfg.anthropicKey, storage: cfg.databaseUrl ? 'postgres' : 'files', missing: missingConfig() });
+  const email = req.user.email;
+  // גיבוי לתזמון: אם הגיע הזמן והדוח של החודש הקודם עוד לא נשלח, שולחים אותו עכשיו ברקע
+  monthly.maybeSendMonthly(email).catch(e => console.error('[report]', e.message));
+  res.json({ email, name: req.user.name, gmail: await google.gmailStatus(email), ai: !!cfg.anthropicKey, storage: cfg.databaseUrl ? 'postgres' : 'files', missing: missingConfig(), report: await monthly.reportInfo(email), drive: await drive.info(email) });
+}));
+
+// "שלח לי עכשיו": דוח על חודש מסוים (ברירת מחדל: החודש הקודם), בלי קשר לתזמון
+api.post('/report/send-now', wrap(async (req, res) => {
+  const today = israelToday();
+  const ym = isMonth(req.body?.month) ? req.body.month : prevMonth(today);
+  if (ym > monthOf(today)) return res.status(400).json({ error: 'bad_month' });
+  res.json({ ok: true, ...(await monthly.sendReport(req.user.email, ym)) });
 }));
 
 api.get('/state', wrap(async (req, res) => { res.json(await store.getAll(req.user.email)); }));
@@ -144,13 +169,34 @@ api.post('/gmail/thread', wrap(async (req, res) => {
 
 api.post('/gmail/extract', wrap(async (req, res) => {
   const { messageId, bizNames, precise } = req.body || {};
-  res.json(await extractFromEmail(req.user.email, String(messageId || ''), { bizNames: String(bizNames || ''), precise: !!precise }));
+  res.json(await extractFromEmail(req.user.email, String(messageId || ''), { bizNames: String(bizNames || ''), precise: !!precise, drive: req.body?.drive === true }));
 }));
 
 api.post('/extract-file', wrap(async (req, res) => {
   const { name, mime, data, bizNames, precise } = req.body || {};
   if (typeof data !== 'string' || !data) return res.status(400).json({ error: 'no_file' });
-  res.json({ result: await extractFromFile({ name: String(name || 'file'), mime: String(mime || ''), data, bizNames: String(bizNames || ''), precise: !!precise }) });
+  res.json(await extractFromFile({ email: req.user.email, name: String(name || 'file'), mime: String(mime || ''), data, bizNames: String(bizNames || ''), precise: !!precise, drive: req.body?.drive === true }));
+}));
+
+// השלמה: חשבוניות שכבר נמצאו במייל נשמרות ב-Drive, כמה בכל פעם
+api.post('/drive/backfill', wrap(async (req, res) => {
+  const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 6);
+  const out = [];
+  for (const it of items){
+    const d = it?.doc || {};
+    try {
+      const f = await saveEmailAttachment(req.user.email, { emailId: String(it?.emailId || ''), fileName: String(it?.fileName || ''), doc: { date: /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : null, vendor: String(d.vendor || '').slice(0, 120), amount: d.amount, dir: d.dir === 'income' ? 'income' : 'expense' } });
+      out.push({ key: it?.key, id: f.id, url: f.url });
+    } catch (e){
+      if (['needs_reauth', 'no_gmail_scope', 'no_drive_scope', 'drive_api_disabled'].includes(e.code)) throw e;
+      out.push({ key: it?.key, error: e.code || 'failed' });
+    }
+  }
+  res.json({ results: out });
+}));
+
+api.post('/drive/trash', wrap(async (req, res) => {
+  res.json(await drive.trashFile(req.user.email, String(req.body?.fileId || '')));
 }));
 
 app.use('/api', api);
