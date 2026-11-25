@@ -74,7 +74,8 @@ const ST = {
   pending:    { label: 'טרם סווג', cls: 'pending', order: 4 },
   complete:   { label: 'מלא', cls: 'ok', order: 5 },
   recurring:  { label: 'הוראת קבע', cls: 'rec', order: 6 },
-  not_needed: { label: 'לא נדרש', cls: 'muted', order: 7 }
+  donation:   { label: 'תרומה', cls: 'don', order: 7 },
+  not_needed: { label: 'לא נדרש', cls: 'muted', order: 8 }
 };
 const DEFAULT_QUERY = '(חשבונית OR קבלה OR "חשבון עסקה" OR "אישור תשלום" OR "אישור עסקה" OR "דרישת תשלום" OR invoice OR receipt OR "payment confirmation") -category:social';
 const KEYS = ['settings','sources','tx','emails','docs','links','rejects','overrides','threads'];
@@ -239,8 +240,8 @@ async function logout(){ await fetch('/auth/logout', { method: 'POST', credentia
 function loadDemo(){
   const tx = (id, src, date, desc, amount, dir, merchant, needsDoc, reason, extra = {}) => ({ id, sourceId: src, date, chargeDate: null, desc, amount, dir, currency: 'ILS', merchant, aliases: [], category: '', needsDoc, needReason: reason, ...extra });
   S.sources = [
-    { id: 'S1', label: 'בנק לאומי — עו"ש 800-12345/67', kind: 'bank', fileName: 'לאומי_תנועות.xlsx', count: 8, importedAt: Date.now() },
-    { id: 'S2', label: 'ויזה כאל •••• 4417', kind: 'credit', fileName: 'cal_10-11.xlsx', count: 11, importedAt: Date.now() }
+    { id: 'S1', label: 'בנק לאומי — עו"ש 800-12345/67', kind: 'bank', fileName: 'לאומי_תנועות.xlsx', count: 9, importedAt: Date.now() },
+    { id: 'S2', label: 'ויזה כאל •••• 4417', kind: 'credit', fileName: 'cal_10-11.xlsx', count: 12, importedAt: Date.now() }
   ];
   S.tx = [
     tx('t1','S1','2026-10-02','הוראת קבע חברת החשמל',412.30,'out','חברת החשמל','yes','תשלום לספק'),
@@ -251,6 +252,7 @@ function loadDemo(){
     tx('t6','S1','2026-10-20','זיכוי מ- יעל לוי',4680,'in','יעל לוי','yes','הכנסה מלקוח, צריך קבלה שהוצאת'),
     tx('t7','S1','2026-11-03','העברה-רו"ח אבי מזרחי',1755,'out','רו"ח אבי מזרחי','yes','שכר טרחה לספק'),
     tx('t8','S1','2026-11-08','עמלת ניהול חשבון',29.90,'out','עמלת בנק','no','עמלת בנק. דף הבנק הוא המסמך'),
+    tx('t9','S1','2026-10-01','הו"ק יד שרה',180,'out','יד שרה','no','תרומה לעמותה'),
     tx('c1','S2','2026-10-03','פז יילו בית שמש',320.50,'out','פז','yes','דלק'),
     tx('c2','S2','2026-10-07','GOOGLE*WORKSPACE',92.40,'out','Google Workspace','yes','מנוי תוכנה',{ origAmount: 24, origCurrency: 'USD' }),
     tx('c3','S2','2026-10-09','בזק בינלאומי',119.90,'out','בזק בינלאומי','yes','תקשורת'),
@@ -261,9 +263,10 @@ function loadDemo(){
     tx('c8','S2','2026-11-02','פז יילו בית שמש',298.70,'out','פז','yes','דלק'),
     tx('c9','S2','2026-11-05','ZOOM.US 888-799-9666',58.30,'out','Zoom','yes','מנוי תוכנה',{ origAmount: 15.99, origCurrency: 'USD' }),
     tx('c10','S2','2026-11-11','יוחננוף מודיעין',410.25,'out','יוחננוף','maybe','קנייה בסופר. ייתכן שפרטית'),
-    tx('c11','S2','2026-11-14','סופר-פארם הדר',64.90,'out','סופר-פארם','maybe','ייתכן שפרטית')
+    tx('c11','S2','2026-11-14','סופר-פארם הדר',64.90,'out','סופר-פארם','maybe','ייתכן שפרטית'),
+    tx('c12','S2','2026-10-16','נדרים פלוס*קופת העיר',360,'out','קופת העיר','no','תרומה')
   ];
-  const CAT = { 'חברת החשמל': 'חשמל ומים', 'משה כהן': 'העברות', 'משיכת מזומן': 'מזומן', 'ביטוח לאומי': 'מיסים ואגרות', 'רו"ח אבי מזרחי': 'שירותים מקצועיים', 'עמלת בנק': 'עמלות בנק', 'פז': 'דלק', 'Google Workspace': 'תוכנה ומנויים', 'בזק בינלאומי': 'תקשורת', 'שופרסל': 'כיבוד', 'Adobe': 'תוכנה ומנויים', 'סלקום': 'תקשורת', 'אופיס דיפו': 'ציוד משרדי', 'Zoom': 'תוכנה ומנויים', 'יוחננוף': 'כיבוד', 'סופר-פארם': 'אחר', 'כאל': 'כרטיס אשראי', 'יעל לוי': 'הכנסה מלקוח' };
+  const CAT = { 'חברת החשמל': 'חשמל ומים', 'משה כהן': 'העברות', 'משיכת מזומן': 'מזומן', 'ביטוח לאומי': 'מיסים ואגרות', 'רו"ח אבי מזרחי': 'שירותים מקצועיים', 'עמלת בנק': 'עמלות בנק', 'פז': 'דלק', 'Google Workspace': 'תוכנה ומנויים', 'בזק בינלאומי': 'תקשורת', 'שופרסל': 'כיבוד', 'Adobe': 'תוכנה ומנויים', 'סלקום': 'תקשורת', 'אופיס דיפו': 'ציוד משרדי', 'Zoom': 'תוכנה ומנויים', 'יוחננוף': 'כיבוד', 'סופר-פארם': 'אחר', 'כאל': 'כרטיס אשראי', 'יעל לוי': 'הכנסה מלקוח', 'יד שרה': 'תרומות', 'קופת העיר': 'תרומות' };
   for (const t of S.tx) t.category = CAT[t.merchant] || '';
   const doc = (id, date, vendor, docType, amount, extra = {}) => ({ id, origin: 'gmail', emailId: 'e' + id, viewUrl: null, fileName: 'invoice.pdf', docType, vendor, customer: '', aliases: [], taxId: '', date, amount, currency: 'ILS', vat: +(amount - amount/1.18).toFixed(2), number: String(1000 + parseInt(id.slice(1)) * 37), dir: 'expense', exempt: false, foreign: false, linkOnly: false, desc: '', ...extra });
   S.docs = [
@@ -276,7 +279,8 @@ function loadDemo(){
     doc('d7','2026-10-22','סלקום ישראל בע"מ','tax_invoice_receipt',89.90),
     doc('d8','2026-11-05','Zoom Video Communications','receipt',15.99,{ currency: 'USD', foreign: true, vat: null }),
     doc('d9','2026-10-25','מגה ספורט','tax_invoice_receipt',349,{ review: 'pending', taxId: '513456789', desc: 'נעלי ספורט' }),
-    doc('d10','2026-11-01','הוט מובייל','tax_invoice',75,{ linkOnly: true, desc: 'החשבונית בקישור בלבד', review: 'pending', number: '' })
+    doc('d10','2026-11-01','הוט מובייל','tax_invoice',75,{ linkOnly: true, desc: 'החשבונית בקישור בלבד', review: 'pending', number: '' }),
+    doc('d11','2026-10-01','יד שרה','receipt',180,{ vat: null, desc: 'קבלה על תרומה, סעיף 46' })
   ];
   const em = (id, date, from, subject, status, docIds = [], note = '') => ({ id, threadId: id, date, from, subject, viewUrl: null, status, docIds, note });
   S.emails = [
@@ -301,7 +305,8 @@ function loadDemo(){
     { t:'c2', d:'d5', by:'ai', conf:.88, reason:'‏24$ הומרו ל-92.40 ₪, Google Workspace' },
     { t:'c5', d:'d6', by:'ai', conf:.86, reason:'PAYPAL *ADOBE = תשלום ל-Adobe דרך PayPal' },
     { t:'c6', d:'d7', by:'auto', conf:.96, reason:'סכום זהה, סלקום' },
-    { t:'c9', d:'d8', by:'ai', conf:.9, reason:'‏15.99$ = 58.30 ₪, Zoom' }
+    { t:'c9', d:'d8', by:'ai', conf:.9, reason:'‏15.99$ = 58.30 ₪, Zoom' },
+    { t:'t9', d:'d11', by:'auto', conf:.95, reason:'סכום ותאריך זהים, יד שרה' }
   ];
   S.rejects = []; S.overrides = {}; S.threads = {};
   S.settings.from = '2026-09-01'; S.settings.to = '2026-11-30';
@@ -719,7 +724,8 @@ For each line, identify the real merchant or counterparty behind the (often trun
 Lines (i | direction | amount ILS | account type | description):
 ${lines}
 
-Reply with ONLY a JSON array: [{"i":0,"merchant":"recognizable name, Hebrew when the business is Israeli","aliases":["other names: English brand, legal name, Hebrew transliteration"],"category":"short Hebrew category","needsDoc":"yes|no|maybe","reason":"short Hebrew reason","recurring":false}]
+Reply with ONLY a JSON array: [{"i":0,"merchant":"recognizable name, Hebrew when the business is Israeli","aliases":["other names: English brand, legal name, Hebrew transliteration"],"category":"short Hebrew category","needsDoc":"yes|no|maybe","reason":"short Hebrew reason","recurring":false,"donation":false}]
+donation = true for donations to charities and public institutions (עמותה, ע"ר, חל"צ, ישיבה, בית כנסת, גמ"ח, נדרים פלוס, JGive and similar). A donation is not recurring even when paid by standing order.
 recurring = true for fixed periodic charges: standing orders (הוראת קבע), insurance, pension and provident funds, loan and mortgage repayments, electricity, water, gas, municipality (ארנונה), phone, internet and TV, leasing, building committee, and fixed monthly subscriptions. Otherwise false.
 needsDoc "no": transfers between the user's own accounts; credit-card bill totals charged in the bank account (ישראכרט, כאל, מקס, לאומי קארד, אמריקן אקספרס, דיינרס — the detail is in the card statement); ATM cash; bank fees, interest and loan repayments (the bank statement is the document); tax and national-insurance payments (מס הכנסה, מע"מ, ביטוח לאומי — the payment confirmation is the document); salary received; deposits of checks; refunds.
 needsDoc "maybe": transfers to private people, Bit/PayBox, checks written, supermarket or pharmacy purchases that may be private.
@@ -752,7 +758,7 @@ async function classifyRun(){
       for (const r of res){
         const k = batch[Number(r?.i)]; if (!k) continue;
         const nd = ['yes','no','maybe'].includes(r.needsDoc) ? r.needsDoc : 'yes';
-        for (const t of groups.get(k)){ t.merchant = str(r.merchant); t.aliases = arr(r.aliases); t.category = str(r.category); t.needsDoc = nd; t.needReason = str(r.reason); t.recurring = r.recurring === true; delete t.ruleBased; }
+        for (const t of groups.get(k)){ t.merchant = str(r.merchant); t.aliases = arr(r.aliases); t.category = str(r.category); t.needsDoc = nd; t.needReason = str(r.reason); t.recurring = r.recurring === true; t.donation = r.donation === true; delete t.ruleBased; }
       }
     }
     for (const k of batch) for (const t of groups.get(k)) if (!t.needsDoc){ const [n, r] = ruleNeed(t); t.needsDoc = n; t.needReason = r; t.ruleBased = true; }
@@ -935,8 +941,11 @@ async function runMatch(){
 // חייב להתאים ל-recurringKeys שב-lib/report.js בשרת.
 const RECUR_RX = /הוראת?\s*קבע|(?<![א-ת])הו["״׳'.]?\s?ק(?![א-ת])|ה\.\s?קבע|הרשאה\s*לחיוב|חיוב\s*קבוע|standing\s*order|direct\s*debit|ביטוח|insurance|הפניקס|מגדל\s*(מקפת|חברה|לביטוח)|מנורה\s*מבטחים|איילון\s*(חברה|לביטוח)|שירביט|ליברה|פספורטכארד|פנסי|קופת\s*גמל|קרן\s*השתלמות|מיטב|אלטשולר|ילין\s*לפידות|הלוואה|משכנתא|mortgage|חברת\s*החשמל|ארנונה|עיריי|עירית|תאגיד\s*ה?מים|גיחון|מי\s*אביבים|אמישראגז|פזגז|סופרגז|בזק|סלקום|cellcom|פרטנר|partner|פלאפון|pelephone|גולן\s*טלקום|(?<![א-ת])הוט(?![א-ת])|\bhot\b|\byes\b|ליסינג|leasing|ועד\s*בית/i;
 const recKey = t => normDesc(t.merchant || t.desc);
-function recurringKeys(){
-  const rules = S.settings.recurringRules || {};
+// תרומה (סעיף 46): עמותות, ישיבות, בתי כנסת, נדרים פלוס וכו'. תרומה בהוראת קבע נחשבת תרומה ולא הוראת קבע.
+// חייב להתאים ל-DONATION_RX ול-donationKeys שב-lib/report.js בשרת.
+const DONATION_RX = /תרומ|עמות|(?<![א-ת])ע["״']ר(?![א-ת])|(?<![א-ת])חל["״']צ(?![א-ת])|צדקה|גמ["״']ח|(?<![א-ת])ישיב|תלמוד\s*תורה|בית\s*כנסת|בית\s*חב["״']?ד|נדרים|קופת\s*(העיר|רבי|ר["״']מ)|jgive|ג['׳]יגיב|israeltoremet|ישראל\s*תורמת|charity|donat|יד\s*שרה|איחוד\s*הצלה|זק["״']א|עזר\s*מציון|יד\s*לאחים/i;
+function donationKeys(){
+  const rules = S.settings.donationRules || {};
   const groups = new Map();
   for (const t of S.tx){
     if (t.dir !== 'out' || isCardBill(t)) continue;
@@ -947,6 +956,22 @@ function recurringKeys(){
   const out = new Set();
   for (const [k, list] of groups){
     if (rules[k] === 'no') continue;
+    if (rules[k] === 'yes' || list.some(t => t.donation === true) || DONATION_RX.test(list.map(t => `${t.desc} ${t.merchant || ''} ${t.category || ''}`).join(' | '))) out.add(k);
+  }
+  return out;
+}
+function recurringKeys(skip = new Set()){
+  const rules = S.settings.recurringRules || {};
+  const groups = new Map();
+  for (const t of S.tx){
+    if (t.dir !== 'out' || isCardBill(t)) continue;
+    const k = recKey(t); if (!k) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+  const out = new Set();
+  for (const [k, list] of groups){
+    if (rules[k] === 'no' || skip.has(k)) continue;
     if (rules[k] === 'yes' || list.some(t => t.recurring === true) || RECUR_RX.test(list.map(t => `${t.desc} ${t.merchant || ''} ${t.category || ''}`).join(' | '))){ out.add(k); continue; }
     const months = new Set(list.map(t => String(t.date).slice(0, 7)));
     const a = list.map(t => t.amount);
@@ -962,8 +987,8 @@ function rederive(){
   S.links = S.links.filter(l => docById.has(l.d) && txById.has(l.t));
   for (const t of S.tx) t._docs = [];
   for (const d of S.docs) d._tx = [];
-  const rec = recurringKeys();
-  for (const t of S.tx) t._rec = t.dir === 'out' && rec.has(recKey(t)) && !isCardBill(t);
+  const don = donationKeys(), rec = recurringKeys(don);
+  for (const t of S.tx){ const k = recKey(t), ok = t.dir === 'out' && !isCardBill(t); t._don = ok && don.has(k); t._rec = ok && !t._don && rec.has(k); }
   for (const l of S.links){ const t = txById.get(l.t), d = docById.get(l.d); t._docs.push(d); d._tx.push(t); }
   for (const t of S.tx) t._status = txStatus(t);
 }
@@ -984,7 +1009,8 @@ function docsStatus(t){
 function txStatus(t){
   if (isSmall(t) && !S.overrides[t.id]) return 'not_needed';
   const ds = docsStatus(t);
-  // הוראת קבע לא נכנסת לדוח החוסרים, אלא אם סימנת ידנית שהתנועה הזו צריכה מסמך
+  // תרומה והוראת קבע לא נכנסות לדוח החוסרים, אלא אם סימנת ידנית שהתנועה הזו צריכה מסמך
+  if (t._don && S.overrides[t.id]?.needsDoc !== 'yes') return 'donation';
   if (t._rec && S.overrides[t.id]?.needsDoc !== 'yes') return ds === 'complete' ? 'complete' : 'recurring';
   if (ds) return ds;
   const need = needOf(t);
@@ -999,16 +1025,16 @@ function stats(){
   const tx = S.tx.filter(t => inPeriod(t.date, p));
   const by = k => tx.filter(t => t._status === k);
   const sum = list => list.reduce((a, t) => a + t.amount, 0);
-  const need = tx.filter(t => t._status !== 'not_needed' && t._status !== 'recurring');
+  const need = tx.filter(t => !['not_needed', 'recurring', 'donation'].includes(t._status));
   const covered = tx.filter(t => ['complete','no_receipt'].includes(t._status));
   const orphans = S.docs.filter(d => isApproved(d) && !d._tx.length && inPeriod(d.date, p));
-  return { tx, p, missing: by('missing'), noInv: by('no_invoice'), noRec: by('no_receipt'), check: by('check'), pending: by('pending'), complete: by('complete'), notNeeded: by('not_needed'), recurring: by('recurring'), need, covered, orphans, sum };
+  return { tx, p, missing: by('missing'), noInv: by('no_invoice'), noRec: by('no_receipt'), check: by('check'), pending: by('pending'), complete: by('complete'), notNeeded: by('not_needed'), recurring: by('recurring'), donations: by('donation'), need, covered, orphans, sum };
 }
 
 /* ============================== תצוגה ============================== */
 function chip(st){ const m = ST[st]; return `<span class="chip ${m.cls}">${m.label}</span>`; }
 function money(t){ return `${t.dir === 'in' ? '+' : ''}${fmtMoney(t.amount)}`; }
-function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderFlows(); renderRecurring(); renderCaps(); }
+function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderFlows(); renderRecurring(); renderDonations(); renderCaps(); }
 function renderBanner(){
   const el = $('#demoBanner');
   if (!S.demo){ el.innerHTML = ''; return; }
@@ -1051,7 +1077,7 @@ function renderBank(){
   let list = S.tx.filter(t => inPeriod(t.date, p));
   if (UI.txf === 'missing') list = list.filter(t => ['missing','no_invoice','check','pending'].includes(t._status));
   else if (UI.txf === 'complete') list = list.filter(t => ['complete','no_receipt'].includes(t._status));
-  else if (UI.txf === 'not_needed') list = list.filter(t => t._status === 'not_needed' || t._status === 'recurring');
+  else if (UI.txf === 'not_needed') list = list.filter(t => ['not_needed', 'recurring', 'donation'].includes(t._status));
   if (q) list = list.filter(t => (t.desc + ' ' + t.merchant + ' ' + t.amount).toLowerCase().includes(q));
   list.sort((a, b) => b.date.localeCompare(a.date));
   $('#bankMeta').textContent = `${list.length} תנועות`;
@@ -1178,7 +1204,7 @@ function readReview(card, d){
   delete UI.rvDraft[d.id];
 }
 function txTable(list, opts = {}){
-  return `<div class="tbl-wrap"><table>${opts.head === false ? '' : '<thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th style="text-align:end">סכום</th><th>מצב</th><th></th></tr></thead>'}<tbody>${list.map(t => {
+  return `<div class="tbl-wrap"><table class="txt">${opts.head === false ? '' : '<thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th style="text-align:end">סכום</th><th>מצב</th><th></th></tr></thead>'}<tbody>${list.map(t => {
     const src = srcOf(t);
     const info = t._docs.length ? t._docs.map(d => `${DOC_TYPES[d.docType]} ${d.number ? '#' + d.number : ''}`).join(' + ') : (t.needReason || '');
     return `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}${info ? `<div class="muted" style="font-size:12.5px">${esc(info)}</div>` : ''}</td><td>${esc(src?.label || '')}</td><td class="amt">${esc(money(t))}${t.origAmount ? `<div class="muted" style="font-size:12px">${esc(fmtMoney(t.origAmount, t.origCurrency))}</div>` : ''}</td><td>${chip(t._status)}</td><td style="white-space:nowrap"><button class="btn small" data-act="link" data-id="${t.id}" type="button">קשר מסמך</button> ${opts.noNeed !== false ? `<button class="btn small ghost" data-act="set-need" data-need="no" data-id="${t.id}" type="button">לא נדרש</button>` : ''}</td></tr>`;
@@ -1195,7 +1221,7 @@ function renderReport(){
   const sec = (id, title, meta, body, actions = '') => `<div class="card" id="${id}"><div class="card-h"><h2>${title}</h2><span class="meta">${meta}</span>${actions ? `<div class="actions">${actions}</div>` : ''}</div><div class="card-b">${body}</div></div>`;
   const missOut = s.missing.filter(t => t.dir === 'out'), missIn = s.missing.filter(t => t.dir === 'in');
   const missingGroups = groupByVendor(missOut);
-  const missingBody = missingGroups.length ? missingGroups.map((g, i) => `<div class="vendor"><div class="vendor-h"><b>${esc(g.name)}</b><span class="meta">${g.list.length} תנועות · <span class="num">${esc(fmtMoney(g.total))}</span></span><div class="actions"><button class="btn small" data-act="copy-req" data-group="${i}" type="button">העתק בקשת חשבונית לספק</button></div></div>${txTable(g.list, { head: i === 0 })}</div>`).join('') : `<div class="empty">אין תשלומים שחסר להם מסמך בתקופה הזו.</div>`;
+  const missingBody = missingGroups.length ? missingGroups.map((g, i) => `<div class="vendor"><div class="vendor-h"><b>${esc(g.name)}</b><span class="meta">${nTx(g.list.length, 'תנועה אחת', 'תנועות')} · <span class="num">${esc(fmtMoney(g.total))}</span></span><div class="actions"><button class="btn small" data-act="copy-req" data-group="${i}" type="button">העתק בקשת חשבונית לספק</button></div></div>${txTable(g.list, { head: i === 0 })}</div>`).join('') : `<div class="empty">אין תשלומים שחסר להם מסמך בתקופה הזו.</div>`;
   UI.missingGroups = missingGroups;
   const orphansBody = s.orphans.length ? `<div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>ספק</th><th>סוג</th><th>מספר</th><th style="text-align:end">סכום</th><th>הערה</th><th></th></tr></thead><tbody>${s.orphans.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(d => `<tr><td class="dt">${fmtDateLong(d.date)}</td><td>${esc(d.vendor)}</td><td>${DOC_TYPES[d.docType]}</td><td>${esc(d.number)}</td><td class="amt">${esc(fmtMoney(d.amount, d.currency))}</td><td class="muted">${esc(d.dir === 'income' ? 'מסמך שהוצאת ללקוח. בדוק שהכסף נכנס' : 'אולי שולם במזומן, בחשבון אחר או בכרטיס שלא הועלה')}</td><td><button class="btn small" data-act="doc" data-id="${d.id}" type="button">פרטים</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">כל המסמכים בתקופה הותאמו לתנועה.</div>`;
   const checkList = [...s.check, ...s.pending];
@@ -1207,7 +1233,7 @@ function renderReport(){
     sec('r-check', 'לבדיקה שלך', `${checkList.length} תנועות ש-Claude לא בטוח לגביהן: העברות לאנשים פרטיים, צ׳קים, קניות שאולי פרטיות`, checkList.length ? `<div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th style="text-align:end">סכום</th><th>למה</th><th></th></tr></thead><tbody>${checkList.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}</td><td>${esc(srcOf(t)?.label || '')}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(t.needReason || 'טרם סווג')}</td><td style="white-space:nowrap"><button class="btn small" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">צריך מסמך</button> <button class="btn small ghost" data-act="set-need" data-need="no" data-id="${t.id}" type="button">לא נדרש</button> <button class="btn small ghost" data-act="link" data-id="${t.id}" type="button">קשר</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">אין תנועות לבדיקה.</div>'),
     sec('r-orphans', 'מסמכים שלא נמצא להם חיוב', `${s.orphans.length} מסמכים בתקופה`, orphansBody),
     sec('r-norec', 'יש חשבונית מס, אין קבלה', `${s.noRec.length} תנועות. בדרך כלל מספיק כשהתשלום בכרטיס אשראי, אבל כדאי לדעת`, s.noRec.length ? txTable(s.noRec) : '<div class="empty">אין.</div>'),
-    sec('r-complete', 'מותאם ומלא', `${s.complete.length} תנועות עם מסמכים מלאים · ${s.notNeeded.length} תנועות שלא דורשות מסמך${s.recurring.length ? ` · ${s.recurring.length} הוראות קבע (בלשונית "הוראות קבע")` : ''}`, `<details style="padding:10px 18px"><summary class="muted" style="cursor:pointer">הצג את התנועות המותאמות</summary>${txTable(s.complete, { noNeed: false })}</details><details style="padding:10px 18px;border-top:1px solid var(--line)"><summary class="muted" style="cursor:pointer">הצג תנועות שלא דורשות מסמך ולמה</summary><div class="tbl-wrap"><table><tbody>${s.notNeeded.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || t.desc)}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(reasonOf(t))}</td><td><button class="btn small ghost" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">דווקא צריך מסמך</button></td></tr>`).join('')}</tbody></table></div></details>`)
+    sec('r-complete', 'מותאם ומלא', `${s.complete.length} תנועות עם מסמכים מלאים · ${s.notNeeded.length} תנועות שלא דורשות מסמך${s.recurring.length ? ` · ${s.recurring.length} הוראות קבע (בלשונית "הוראות קבע")` : ''}${s.donations.length ? ` · ${s.donations.length} תרומות (בלשונית "תרומות")` : ''}`, `<details style="padding:10px 18px"><summary class="muted" style="cursor:pointer">הצג את התנועות המותאמות</summary>${txTable(s.complete, { noNeed: false })}</details><details style="padding:10px 18px;border-top:1px solid var(--line)"><summary class="muted" style="cursor:pointer">הצג תנועות שלא דורשות מסמך ולמה</summary><div class="tbl-wrap"><table><tbody>${s.notNeeded.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || t.desc)}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(reasonOf(t))}</td><td><button class="btn small ghost" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">דווקא צריך מסמך</button></td></tr>`).join('')}</tbody></table></div></details>`)
   ].join('');
 }
 /* ============================== הכנסות והוצאות ============================== */
@@ -1330,6 +1356,43 @@ function renderRecurring(){
   ].join('');
 }
 
+/* לשונית תרומות (סעיף 46). הנתונים נכונים ל-2026: זיכוי 35% ליחיד ו-23% לחברה, מעל 207 ₪ בשנה */
+const DON46 = { year: 2026, min: 207, person: 0.35, company: 0.23 };
+function renderDonations(){
+  const p = period();
+  const all = S.tx.filter(t => t._don);
+  const inP = all.filter(t => inPeriod(t.date, p)).sort((a, b) => b.date.localeCompare(a.date));
+  const year = p.to.slice(0, 4);
+  const yearList = all.filter(t => t.date.startsWith(year));
+  const yearSum = sumAmt(yearList);
+  const withRec = inP.filter(t => t._docs.length), noRec = inP.filter(t => !t._docs.length);
+  const credit = yearSum > DON46.min ? yearSum * DON46.person : 0;
+  const groups = new Map();
+  for (const t of inP){ const k = recKey(t); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+  const rows = [...groups.entries()].map(([k, list]) => ({ k, name: groupSum(list, t => t.merchant || t.desc)[0].name, list, sum: sumAmt(list), rec: list.filter(t => t._docs.length).length })).sort((a, b) => b.sum - a.sum);
+  const rules = S.settings.donationRules || {};
+  const removed = Object.keys(rules).filter(k => rules[k] === 'no');
+  const nameOf = k => { const t = S.tx.find(x => recKey(x) === k); return t ? (t.merchant || t.desc) : k; };
+  const table = rows.length ? `<div class="tbl-wrap"><table class="rec-t don-t"><thead><tr><th>מוסד</th><th>תרומות</th><th>קבלות</th><th>חשבון</th><th style="text-align:end">סכום בתקופה</th><th></th></tr></thead><tbody>${rows.map(r => `<tr>
+      <td><b>${esc(r.name)}</b><div class="muted" style="font-size:12.5px">${r.list.length === 1 ? 'תרומה אחת' : r.list.length + ' תרומות'} · אחרונה ב-${fmtDateLong(r.list[0].date)}</div></td>
+      <td>${r.list.length}</td><td>${r.rec === r.list.length ? '<span class="chip ok">יש קבלה</span>' : r.rec ? `<span class="chip warn">${r.rec} מתוך ${r.list.length}</span>` : '<span class="chip warn">אין קבלה</span>'}</td>
+      <td class="muted">${esc(srcOf(r.list[0])?.label || '')}</td><td class="amt"><b>${esc(fmtMoney(r.sum))}</b></td>
+      <td style="white-space:nowrap"><button class="btn small ghost" data-act="don-no" data-k="${esc(r.k)}" type="button">לא תרומה</button></td></tr>`).join('')}</tbody></table></div>`
+    : `<div class="empty">${S.tx.length ? 'לא נמצאו תרומות בתקופה הזו. כדי לסמן תשלום כתרומה, לחץ עליו בלוח העבודה ובחר "סמן כתרומה".' : 'עוד אין תנועות. העלה קובץ מהבנק ומחברות האשראי בלוח העבודה.'}</div>`;
+  $('#tab-donations').innerHTML = [
+    `<div class="hero don"><div class="hero-k">תרומות · ${esc(periodLabel(p))}</div><div class="hero-v num">${esc(fmtMoney(sumAmt(inP)))}</div><div class="hero-s">${inP.length === 1 ? 'תרומה אחת' : inP.length + ' תרומות'}${rows.length ? ` · ${rows.length === 1 ? 'מוסד אחד' : rows.length + ' מוסדות'}` : ''}</div></div>`,
+    `<div class="ftiles don-tiles">
+      <div class="tile static"><div class="k">סך התרומות בשנת ${year}</div><div class="v num">${esc(fmtMoney(yearSum))}</div><div class="s">${yearList.length === 1 ? 'תרומה אחת' : yearList.length + ' תרומות'} מתחילת השנה</div></div>
+      <div class="tile static ok${credit ? '' : ' zero'}"><div class="k">זיכוי מס משוער</div><div class="v num">${esc(fmtMoney(credit))}</div><div class="s">${yearSum > DON46.min ? `35% ליחיד. לחברה 23%: ${esc(fmtMoney(yearSum * DON46.company))}` : `הזיכוי מתחיל מעל ${DON46.min} ₪ בשנה`}</div></div>
+      <div class="tile static${noRec.length ? ' bad' : ''}"><div class="k">בלי קבלה</div><div class="v num">${noRec.length}</div><div class="s">${noRec.length ? esc(fmtMoney(sumAmt(noRec))) + ' בתקופה. כדאי לבקש קבלה מהמוסד' : 'לכל התרומות בתקופה יש קבלה'}</div></div>
+    </div>`,
+    `<div class="note info" style="margin:0">התרומות <b>לא נכללות בדוח החוסרים</b>. הזיכוי לפי סעיף 46 ניתן רק על תרומה למוסד עם אישור לפי סעיף 46, כשסך התרומות בשנה עולה על ${DON46.min} ₪ (נכון ל-${DON46.year}). מ-${DON46.year} המוסדות מדווחים את התרומות למערכת המקוונת של רשות המסים, וכדאי לבדוק באזור האישי שכל תרומה מופיעה שם. החישוב כאן הוא הערכה בלבד. את הסכום הסופי קובע רואה החשבון.</div>`,
+    `<div class="card"><div class="card-h"><h2>לפי מוסד</h2><span class="meta">בתקופה שנבחרה</span></div><div class="card-b">${table}</div></div>`,
+    inP.length ? `<div class="card"><div class="card-h"><h2>כל התרומות</h2><span class="meta">כדי לחבר קבלה, לחץ "קשר מסמך"</span></div><div class="card-b">${txTable(inP, { noNeed: false })}</div></div>` : '',
+    removed.length ? `<div class="card"><div class="card-h"><h2>סימנת כלא תרומות</h2><span class="meta">הם חוזרים לדוח החוסרים כרגיל</span></div><div class="card-b" style="padding:10px 18px;display:flex;flex-wrap:wrap;gap:8px">${removed.map(k => `<span class="src">${esc(nameOf(k))}<button data-act="don-reset" data-k="${esc(k)}" aria-label="החזר את ${esc(nameOf(k))} לתרומות" title="החזר לתרומות" type="button">↺</button></span>`).join('')}</div></div>` : ''
+  ].join('');
+}
+
 /* מצב החיבורים: נקודה ליד עיגול המשתמש. הפירוט המלא בחלון ההגדרות, ובתחתית הדף מופיעות רק תקלות */
 function capsItems(){
   if (!CAP.me) return [];
@@ -1376,7 +1439,8 @@ function openTx(id){
      <button class="btn" data-act="set-need" data-need="no" data-id="${t.id}" type="button">לא דורש מסמך</button>
      <button class="btn" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">דורש מסמך</button>
      ${S.overrides[t.id] ? `<button class="btn ghost" data-act="set-need" data-need="" data-id="${t.id}" type="button">חזור לסיווג של Claude</button>` : ''}
-     ${t.dir === 'out' && !isCardBill(t) ? `<button class="btn ghost" data-act="${t._rec ? 'rec-no' : 'rec-yes'}" data-id="${t.id}" type="button">${t._rec ? 'זו לא הוראת קבע' : 'סמן כהוראת קבע'}</button>` : ''}`);
+     ${t.dir === 'out' && !isCardBill(t) && !t._don ? `<button class="btn ghost" data-act="${t._rec ? 'rec-no' : 'rec-yes'}" data-id="${t.id}" type="button">${t._rec ? 'זו לא הוראת קבע' : 'סמן כהוראת קבע'}</button>` : ''}
+     ${t.dir === 'out' && !isCardBill(t) ? `<button class="btn ghost" data-act="${t._don ? 'don-no' : 'don-yes'}" data-id="${t.id}" type="button">${t._don ? 'זו לא תרומה' : 'סמן כתרומה'}</button>` : ''}`);
 }
 function openLink(id, q = ''){
   const t = S.tx.find(x => x.id === id); if (!t) return;
@@ -1516,7 +1580,7 @@ async function driveBackfill(){
   else toast(fatal ? errText(fatal) : `${ok} חשבוניות הועתקו ל-Google Drive${failed ? `. ${failed} לא הצליחו, למשל כי הקובץ כבר לא נמצא במייל` : ''}.`, 7000);
 }
 function syncInputs(){ const p = period(); $('#pFrom').value = p.from; $('#pTo').value = p.to; $('#gq').value = S.settings.gmailQuery || DEFAULT_QUERY; }
-const TABS = ['board','income','expense','recurring','review','report','ask'];
+const TABS = ['board','income','expense','recurring','donations','review','report','ask'];
 function switchTab(tab){
   UI.tab = tab;
   document.body.dataset.tab = tab;
@@ -1558,7 +1622,7 @@ function printHtml(){
   return `<header class="p-head"><div><div class="p-brand">Ka-Ching</div><div class="p-title">דוח התאמת בנק וחשבוניות · ${esc(periodLabel(s.p))}</div>${biz ? `<div class="p-biz">${esc(biz)}</div>` : ''}</div><div class="p-meta">תקופה: ${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)}<br>הופק: ${fmtDateLong(todayISO())}${S.demo ? '<br><b>נתוני דוגמה</b>' : ''}</div></header>
     <section class="p-sec p-summary"><h2 style="border-color:#1d3b66">סיכום</h2>
       <table class="sumt"><thead><tr><th>קטגוריה</th><th class="num">תנועות</th><th class="amt">סכום</th></tr></thead><tbody>
-        ${sumRow('חסר מסמך (חשבונית או קבלה)', s.missing, 'bad')}${sumRow('חסרה חשבונית מס', s.noInv, 'warn')}${sumRow('לבדיקה', checkList)}${sumRow('יש חשבונית, אין קבלה', s.noRec)}${sumRow('מותאם ומלא', s.complete, 'ok')}${sumRow('לא נדרש מסמך', s.notNeeded)}${s.recurring.length ? sumRow('הוראות קבע (לא נכללות בדוח)', s.recurring) : ''}
+        ${sumRow('חסר מסמך (חשבונית או קבלה)', s.missing, 'bad')}${sumRow('חסרה חשבונית מס', s.noInv, 'warn')}${sumRow('לבדיקה', checkList)}${sumRow('יש חשבונית, אין קבלה', s.noRec)}${sumRow('מותאם ומלא', s.complete, 'ok')}${sumRow('לא נדרש מסמך', s.notNeeded)}${s.recurring.length ? sumRow('הוראות קבע (לא נכללות בדוח)', s.recurring) : ''}${s.donations.length ? sumRow('תרומות (לא נכללות בדוח)', s.donations) : ''}
         <tr><td>מסמכים שלא נמצא להם חיוב</td><td class="num">${s.orphans.length}</td><td class="amt">${esc(fmtMoney(orphanSum))}</td></tr>
         <tr class="tot"><td>סך הכל תנועות בתקופה</td><td class="num">${s.tx.length}</td><td class="amt"></td></tr>
       </tbody></table>
@@ -1605,6 +1669,7 @@ function exportXlsx(){
     ['מלא', s.complete.length, +s.sum(s.complete).toFixed(2)],
     ['לא נדרש מסמך', s.notNeeded.length, +s.sum(s.notNeeded).toFixed(2)],
     ['הוראות קבע (לא בדוח)', s.recurring.length, +s.sum(s.recurring).toFixed(2)],
+    ['תרומות (לא בדוח)', s.donations.length, +s.sum(s.donations).toFixed(2)],
     ['מסמכים ללא תנועה', s.orphans.length, +s.orphans.reduce((a, d) => a + (d.amount || 0), 0).toFixed(2)]
   ];
   const add = (name, aoa, widths) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = widths.map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name); };
@@ -1818,6 +1883,17 @@ document.addEventListener('click', e => {
       break;
     }
     case 'drive-backfill': closeModal(); driveBackfill(); break;
+    case 'don-no': case 'don-yes': case 'don-reset': {
+      const tx = id ? S.tx.find(t => t.id === id) : null;
+      const k = el.dataset.k || (tx ? recKey(tx) : '');
+      if (!k) break;
+      const rules = S.settings.donationRules = { ...(S.settings.donationRules || {}) };
+      if (act === 'don-reset') delete rules[k]; else rules[k] = act === 'don-yes' ? 'yes' : 'no';
+      markDirty('settings'); rederive(); renderAll();
+      if (id && $('#modalRoot').innerHTML) openTx(id);
+      toast(act === 'don-yes' ? 'סומן כתרומה. התשלומים למוסד הזה מופיעים בלשונית "תרומות" ולא בדוח החוסרים.' : act === 'don-no' ? 'הוסר מהתרומות. התשלומים האלה חוזרים לדוח החוסרים.' : 'הוחזר לתרומות.');
+      break;
+    }
     case 'rec-no': case 'rec-yes': case 'rec-reset': {
       const k = el.dataset.k || (S.tx.find(t => t.id === id) ? recKey(S.tx.find(t => t.id === id)) : '');
       if (!k) break;

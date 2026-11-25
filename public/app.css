@@ -429,3 +429,38 @@ textarea.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;f
   .rec-t td:nth-child(6){grid-column:2;grid-row:1}
   .rec-t td:nth-child(7){grid-column:1;grid-row:2}
 }
+
+/* ---------- תרומות ---------- */
+.chip.don{background:#fdf2fa;color:#9e165f}
+.hero.don{border-top-color:#c11574}
+.ftiles.don-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+.tile.bad .v{color:var(--bad)}
+@media (max-width:700px){
+  .ftiles.don-tiles{grid-template-columns:1fr 1fr}
+  .ftiles.don-tiles .tile:first-child{grid-column:1/-1}
+}
+/* בטלפון יש 8 לשוניות בסרגל התחתון */
+@media (max-width:440px){
+  .tab{padding:6px 1px}
+  .tab span:not(.cnt){font-size:10.5px}
+  .tab .cnt{left:calc(50% - 22px);font-size:10px;padding:0 5px}
+}
+@media (max-width:700px){
+  .rec-t.don-t td:nth-child(2),.rec-t.don-t td:nth-child(4){display:none}
+  .rec-t.don-t td:nth-child(3){display:block;grid-column:1;grid-row:2}
+  .rec-t.don-t td:nth-child(5){grid-column:2;grid-row:1;font-size:inherit;color:inherit}
+  .rec-t.don-t td:nth-child(6){grid-column:2;grid-row:2}
+}
+/* טבלאות התנועות בטלפון: כל תנועה ככרטיס קטן במקום שורה רחבה */
+@media (max-width:700px){
+  table.txt thead{display:none}
+  table.txt tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:10px 14px;border-bottom:1px solid var(--row-line)}
+  table.txt td{padding:0;border:0}
+  table.txt td:nth-child(2){grid-column:1;grid-row:1;font-weight:600}
+  table.txt td:nth-child(5){grid-column:2;grid-row:1}
+  table.txt td:nth-child(3){grid-column:1;grid-row:2;font-size:13px;color:var(--ink-2)}
+  table.txt td:nth-child(6){grid-column:2;grid-row:2;text-align:end}
+  table.txt td:nth-child(1){grid-column:1;grid-row:3}
+  table.txt td:nth-child(7){grid-column:2;grid-row:3;text-align:end}
+  table.txt td:nth-child(4){display:none}
+}
