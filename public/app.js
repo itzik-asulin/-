@@ -885,6 +885,7 @@ function rederive(){
   for (const t of S.tx) t._status = txStatus(t);
 }
 function txStatus(t){
+    if (t.dir === 'out' && t.amount < 50) return 'not_needed'; 
   const docs = t._docs || [];
   if (docs.length){
     if (docs.some(d => d.docType === 'credit_note')) return 'complete';
