@@ -250,6 +250,10 @@ td.dt{font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap;colo
 .caps:empty{padding:12px 0}
 .caps .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line);margin-inline-end:6px;vertical-align:middle}
 .caps .on{background:#12b76a} .caps .off{background:var(--bad)}
+.rep-box{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.rep-box .chk{font-weight:500}
+.steps{margin:0;padding-inline-start:20px;font-size:13px;color:var(--ink-2);display:flex;flex-direction:column;gap:4px}
+textarea.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;direction:ltr;text-align:left;white-space:pre;background:var(--paper)}
 .status-list{display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--ink-2);background:var(--paper);border-radius:10px;padding:10px 14px}
 .status-list .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line);margin-inline-end:8px;vertical-align:middle}
 .status-list .on{background:#12b76a} .status-list .off{background:var(--bad)}
@@ -333,3 +337,47 @@ td.dt{font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap;colo
 .login-card code{font-size:13px;background:var(--paper);padding:1px 6px;border-radius:4px;direction:ltr;unicode-bidi:isolate}
 .login-card ul{margin:0;padding-inline-start:20px;color:var(--muted)}
 .account{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--ink-2)}
+
+/* ---------- דוח: פס עליון עם PDF ואקסל ---------- */
+.report-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow)}
+.report-bar .grow{flex:1 1 220px}
+@media (max-width:700px){ .report-bar .actions{width:100%} .report-bar .actions .btn{flex:1 1 0;justify-content:center} }
+
+/* ---------- הדפסה / PDF: דוח נקי במקום המסך ---------- */
+#printRoot{display:none}
+@media print{
+  @page{size:A4;margin:13mm 12mm 14mm}
+  html,body{background:#fff !important;color:#101828 !important;color-scheme:light;margin:0 !important;padding:0 !important}
+  body > :not(#printRoot){display:none !important}
+  #printRoot{display:block !important;direction:rtl;font-family:"Heebo","Assistant","Segoe UI",Arial,sans-serif;font-size:9.5pt;line-height:1.45;color:#101828;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #printRoot .p-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;border-bottom:2.5pt solid #1d3b66;padding-bottom:8pt;margin-bottom:12pt}
+  #printRoot .p-brand{font-size:20pt;font-weight:800;color:#1d3b66;line-height:1.1}
+  #printRoot .p-title{font-size:12pt;font-weight:600;margin-top:2pt}
+  #printRoot .p-biz{font-size:10pt;color:#344054}
+  #printRoot .p-meta{font-size:9pt;color:#5d6b7e;text-align:left;white-space:nowrap}
+  #printRoot .p-sec{margin:0 0 13pt}
+  #printRoot h2{font-size:11.5pt;font-weight:700;margin:0 0 3pt;padding-inline-start:7pt;border-inline-start:3.5pt solid #1d3b66;break-after:avoid;page-break-after:avoid}
+  #printRoot h2 .cnt{font-weight:500;color:#5d6b7e;font-size:10pt}
+  #printRoot .meta{font-size:8.5pt;color:#5d6b7e;margin:0 0 4pt;break-after:avoid}
+  #printRoot .none{font-size:9pt;color:#5d6b7e;padding:2pt 10pt}
+  #printRoot table{width:100%;border-collapse:collapse;font-size:8.8pt}
+  #printRoot thead{display:table-header-group}
+  #printRoot th{background:#f2f4f7;color:#344054;font-weight:600;text-align:right;padding:3.5pt 5pt;border-bottom:1pt solid #d0d5dd}
+  #printRoot td{padding:3pt 5pt;border-bottom:.6pt solid #e4e7ec;vertical-align:top}
+  #printRoot tr{break-inside:avoid;page-break-inside:avoid}
+  #printRoot .dt{white-space:nowrap;font-variant-numeric:tabular-nums}
+  #printRoot .amt{text-align:left;white-space:nowrap;direction:ltr;font-variant-numeric:tabular-nums}
+  #printRoot th.amt{text-align:left}
+  #printRoot .num{text-align:center;font-variant-numeric:tabular-nums}
+  #printRoot .sub{font-size:7.8pt;color:#5d6b7e}
+  #printRoot .vrow td{background:#f8f9fb;border-top:.8pt solid #d0d5dd;padding-top:4pt}
+  #printRoot tbody.grp{break-inside:auto}
+  #printRoot .sumt{width:auto;min-width:60%}
+  #printRoot .sumt td{padding:3pt 8pt}
+  #printRoot .sumt tr.bad td:first-child{color:#b42318;font-weight:600}
+  #printRoot .sumt tr.warn td:first-child{color:#b54708;font-weight:600}
+  #printRoot .sumt tr.ok td:first-child{color:#067647;font-weight:600}
+  #printRoot .sumt tr.tot td{font-weight:700;border-top:1pt solid #98a2b3}
+  #printRoot .p-summary .meta{margin-top:5pt}
+  #printRoot .p-foot{margin-top:14pt;padding-top:6pt;border-top:.6pt solid #d0d5dd;font-size:8pt;color:#5d6b7e}
+}

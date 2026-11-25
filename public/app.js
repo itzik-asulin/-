@@ -84,7 +84,12 @@ const S = {
 };
 const UI = { txf: 'all', mf: 'all', df: 'all', txLimit: 150, mailLimit: 150, docLimit: 150, tab: 'board', notes: { bank: null, mail: null, doc: null }, rvDraft: {} };
 const jobs = {};
-const CAP = { ready: false, me: null, ai: false, gmail: 'unknown', saveOk: null };
+const CAP = { ready: false, me: null, ai: false, gmail: 'unknown', saveOk: null, report: null };
+const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+const monthName = ym => `${HE_MONTHS[+ym.slice(5,7) - 1]} ${ym.slice(0,4)}`;
+const prevYm = ym => { const [y, m] = ym.split('-').map(Number); return m === 1 ? `${y-1}-12` : `${y}-${pad(m-1)}`; };
+const nextYm = ym => { const [y, m] = ym.split('-').map(Number); return m === 12 ? `${y+1}-01` : `${y}-${pad(m+1)}`; };
+const monthEnd = ym => { const [y, m] = ym.split('-').map(Number); return `${ym}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}`; };
 
 function period(){
   const to = S.settings.to || todayISO();
@@ -128,6 +133,8 @@ function errText(e){
     case 'ai_bad_request': return 'Claude לא הצליח לקרוא את הקובץ הזה.';
     case 'cancelled': return 'הפעולה הופסקה.';
     case 'no_xlsx': return 'רכיב קריאת האקסל לא נטען. רענן את הדף.';
+    case 'no_send_scope': return 'עוד לא אישרת ל-Google שהאתר ישלח לך מייל. סמן בהגדרות את "דוח חוסרים במייל" ולחץ "שמור".';
+    case 'bad_month': return 'החודש שנבחר לא תקין.';
     default: return 'תקלה זמנית. נסה שוב.';
   }
 }
@@ -185,9 +192,10 @@ function hideLogin(){ $('#loginRoot').innerHTML = ''; if (location.search) histo
 
 async function init(){
   let me;
+  const qs = new URLSearchParams(location.search);
   try { me = await api('/me'); }
   catch (e){ CAP.ready = true; renderCaps(); if (e.code !== 'not_logged_in') toast(errText(e), 6000); return; }
-  CAP.me = me; CAP.ai = !!me.ai; CAP.gmail = me.gmail; CAP.ready = true;
+  CAP.me = me; CAP.ai = !!me.ai; CAP.gmail = me.gmail; CAP.report = me.report || null; CAP.ready = true;
   hideLogin();
   try {
     const L = await api('/state');
@@ -195,8 +203,29 @@ async function init(){
     CAP.saveOk = true;
   } catch (e){ CAP.saveOk = false; toast('לא הצלחתי לטעון את הנתונים השמורים. רענן את הדף.', 6000); }
   if (me.missing?.includes('ANTHROPIC_API_KEY')) setNote('bank', 'err', errText({ code: 'no_ai' }));
+  if (UI.hashMonth) setMonthPeriod(UI.hashMonth);
+  // חזרה ממסך האישור של Google להרשאת שליחת הדוח במייל
+  const sendOk = qs.get('send_ok');
+  if (sendOk === '1'){
+    if (!S.settings.monthlyReport){ S.settings.monthlyReport = true; S.settings.monthlyReportSince = S.settings.monthlyReportSince || reportSince(); markDirty('settings'); }
+    toast('מעולה. Google אישר, ודוח החוסרים יישלח אליך במייל ב-10 לכל חודש.', 6000);
+  } else if (sendOk === '0'){
+    toast('לא ניתנה הרשאה לשליחת מייל, ולכן הדוח החודשי לא יישלח. אפשר לנסות שוב מההגדרות.', 7000);
+  } else if (qs.get('login_error')){
+    toast('האישור ב-Google לא הושלם. אפשר לנסות שוב מההגדרות.', 6000);
+  }
   if (dirty.size) flush();
   syncInputs(); rederive(); renderAll();
+  if (sendOk) openSettings();
+}
+// מאיזה חודש מתחילים לשלוח: עד ה-10 בחודש כולל, כבר הדוח על החודש הקודם. אחרי ה-10, הדוח על החודש הנוכחי (יישלח בחודש הבא)
+function reportSince(){
+  const r = CAP.report; const today = r?.today || todayISO();
+  return +today.slice(8, 10) <= (r?.sendDay || 10) ? prevYm(today.slice(0, 7)) : today.slice(0, 7);
+}
+function setMonthPeriod(ym){
+  S.settings.from = ym + '-01'; S.settings.to = monthEnd(ym);
+  markDirty('settings'); syncInputs(); rederive(); renderAll();
 }
 async function logout(){ await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); location.href = '/'; }
 
@@ -1108,8 +1137,9 @@ function renderReport(){
   UI.missingGroups = missingGroups;
   const orphansBody = s.orphans.length ? `<div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>ספק</th><th>סוג</th><th>מספר</th><th style="text-align:end">סכום</th><th>הערה</th><th></th></tr></thead><tbody>${s.orphans.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(d => `<tr><td class="dt">${fmtDateLong(d.date)}</td><td>${esc(d.vendor)}</td><td>${DOC_TYPES[d.docType]}</td><td>${esc(d.number)}</td><td class="amt">${esc(fmtMoney(d.amount, d.currency))}</td><td class="muted">${esc(d.dir === 'income' ? 'מסמך שהוצאת ללקוח. בדוק שהכסף נכנס' : 'אולי שולם במזומן, בחשבון אחר או בכרטיס שלא הועלה')}</td><td><button class="btn small" data-act="doc" data-id="${d.id}" type="button">פרטים</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">כל המסמכים בתקופה הותאמו לתנועה.</div>`;
   const checkList = [...s.check, ...s.pending];
-  el.innerHTML = [
-    sec('r-missing', 'תשלומים בלי חשבונית או קבלה', `${missOut.length} תנועות · ${esc(fmtMoney(s.sum(missOut)))} · ${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)}`, missingBody, `<button class="btn small" data-act="export" type="button">ייצוא לאקסל</button>`),
+  const bar = `<div class="report-bar"><div class="grow"><b>הדוח של ${esc(periodLabel(s.p))}</b><div class="muted" style="font-size:12.5px">${periodLabel(s.p).includes('/') ? '' : `${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)} · `}לשינוי התקופה, בחר תאריכים בפס העליון</div></div><div class="actions"><button class="btn primary" data-act="pdf" type="button"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>הורד PDF</button><button class="btn" data-act="export" type="button">ייצוא לאקסל</button></div></div>`;
+  el.innerHTML = bar + [
+    sec('r-missing', 'תשלומים בלי חשבונית או קבלה', `${missOut.length} תנועות · ${esc(fmtMoney(s.sum(missOut)))} · ${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)}`, missingBody),
     missIn.length ? sec('r-income', 'הכנסות שלא נמצאה עליהן קבלה שהוצאת', `${missIn.length} תנועות · ${esc(fmtMoney(s.sum(missIn)))}. בדוק שהוצאת ללקוח חשבונית מס/קבלה`, txTable(missIn)) : '',
     sec('r-noinv', 'יש תשלום ואישור, אבל אין חשבונית מס', `${s.noInv.length} תנועות. נמצא רק אישור תשלום, חשבון עסקה או מסמך אחר. בקש מהספק חשבונית מס`, s.noInv.length ? txTable(s.noInv) : '<div class="empty">אין.</div>'),
     sec('r-check', 'לבדיקה שלך', `${checkList.length} תנועות ש-Claude לא בטוח לגביהן: העברות לאנשים פרטיים, צ׳קים, קניות שאולי פרטיות`, checkList.length ? `<div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th style="text-align:end">סכום</th><th>למה</th><th></th></tr></thead><tbody>${checkList.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}</td><td>${esc(srcOf(t)?.label || '')}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(t.needReason || 'טרם סווג')}</td><td style="white-space:nowrap"><button class="btn small" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">צריך מסמך</button> <button class="btn small ghost" data-act="set-need" data-need="no" data-id="${t.id}" type="button">לא נדרש</button> <button class="btn small ghost" data-act="link" data-id="${t.id}" type="button">קשר</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">אין תנועות לבדיקה.</div>'),
@@ -1126,7 +1156,8 @@ function capsItems(){
     S.demo ? { on: null, label: 'נתוני דוגמה, לא נשמרים' } : { on: CAP.saveOk !== false, label: 'הנתונים נשמרים בשרת שלך', off: 'השמירה האחרונה נכשלה' },
     { on: CAP.gmail === 'ok', label: 'Gmail מחובר (קריאה בלבד)', off: 'Gmail לא מחובר. "הגדרות" ← "התחבר מחדש ל-Google"' },
     { on: CAP.ai, label: `Claude זמין · מצב ${S.settings.aiMode === 'precise' ? 'מדויק' : 'מהיר'}`, off: 'קריאת חשבוניות עם AI לא זמינה' },
-    { on: !!window.XLSX, label: 'קורא האקסל נטען', off: 'קורא האקסל לא נטען. רענן את הדף' }
+    { on: !!window.XLSX, label: 'קורא האקסל נטען', off: 'קורא האקסל לא נטען. רענן את הדף' },
+    ...(S.settings.monthlyReport === true && CAP.report ? [{ on: CAP.report.canSend, label: 'דוח חוסרים במייל פעיל, ב-10 לכל חודש', off: 'דוח החוסרים במייל עוד לא אושר ב-Google. "הגדרות" ← "שמור"' }] : [])
   ];
 }
 const capLine = c => `<span><span class="dot ${c.on === null ? '' : c.on ? 'on' : 'off'}"></span>${esc(c.on === false ? c.off : c.label)}</span>`;
@@ -1202,12 +1233,65 @@ function openSettings(){
   modal('הגדרות', `
     ${CAP.me ? `<div class="status-list">${capsItems().map(capLine).join('')}</div>
     <div class="actions"><a class="btn small" href="/auth/login?consent=1&hint=${encodeURIComponent(CAP.me.email)}">התחבר מחדש ל-Google</a><button class="btn small" data-act="logout" type="button">התנתק</button></div>` : ''}
+    ${CAP.me ? reportSettingsHtml() : ''}
     <div class="field"><label for="setBiz">שמות העסק והבעלים, מופרדים בפסיק. כך Claude מזהה חשבוניות שאתה הוצאת ללקוחות.</label><input type="text" id="setBiz" value="${esc(s.bizNames)}" placeholder="לדוגמה: שטיינברג שמאות מקרקעין, שלום שטיינברג"></div>
     <div class="field"><label for="setMode">מצב AI</label><select id="setMode"><option value="fast" ${s.aiMode !== 'precise' ? 'selected' : ''}>מהיר וזול: מתאים לרוב החשבוניות</option><option value="precise" ${s.aiMode === 'precise' ? 'selected' : ''}>מדויק: מודל חזק יותר. איטי ויקר יותר</option></select></div>
     <div class="field"><label for="setMax">מספר שרשורי מייל מקסימלי בכל סריקה</label><input type="number" id="setMax" min="10" max="2000" value="${s.maxThreads}" style="direction:ltr;max-width:140px"></div>
     <div class="note info" style="margin:0">החיבור לבנק נעשה דרך קובץ שאתה מוריד מאתר הבנק. האתר לא מבקש ולא שומר סיסמאות לבנק.</div>
     <div style="border-top:1px solid var(--line);padding-top:12px"><button class="btn danger" data-act="wipe" type="button">מחק את כל הנתונים</button> <span class="muted" style="font-size:12.5px">תנועות, מיילים שנסרקו, מסמכים והתאמות</span></div>`,
     `<button class="btn primary" data-act="save-settings" type="button">שמור</button><button class="btn" data-act="close" type="button">ביטול</button>`);
+}
+/* דוח החוסרים במייל: החלק בחלון ההגדרות */
+function nextReport(){
+  const r = CAP.report; if (!r) return null;
+  const today = r.today, day = +today.slice(8, 10), thisM = today.slice(0, 7);
+  let ym = day <= r.sendDay && r.lastSent?.month !== prevYm(thisM) ? prevYm(thisM) : thisM;
+  if (S.settings.monthlyReportSince && S.settings.monthlyReportSince > ym) ym = S.settings.monthlyReportSince;
+  const sendM = nextYm(ym);
+  return { ym, date: `${pad(r.sendDay)}/${sendM.slice(5, 7)}/${sendM.slice(0, 4)}` };
+}
+function cronScript(){
+  return `// Ka-Ching: מעיר את האתר פעם ביום, כדי שדוח החוסרים יישלח ב-10 לחודש גם כשהאתר סגור.
+const KA_CHING_URL = '${CAP.report.cronUrl}';
+
+function setup() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('ping').timeBased().everyDays(1).atHour(8).inTimezone('Asia/Jerusalem').create();
+  ping();
+}
+
+function ping() {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = UrlFetchApp.fetch(KA_CHING_URL, { muteHttpExceptions: true });
+      if (r.getResponseCode() === 200) { Logger.log(r.getContentText()); return; }
+    } catch (e) { Logger.log(e); }
+    Utilities.sleep(40000);
+  }
+}
+`;
+}
+function reportSettingsHtml(){
+  const r = CAP.report; if (!r) return '';
+  const on = S.settings.monthlyReport === true;
+  const prev = prevYm(r.today.slice(0, 7));
+  const nx = nextReport();
+  let status;
+  if (!r.canSend) status = on ? 'עוד לא אישרת ל-Google לשלוח את הדוח. לחץ "שמור", ותועבר למסך אישור קצר של Google.' : 'בלחיצה על "שמור" תועבר פעם אחת למסך של Google, כדי לאשר שהאתר ישלח לך את הדוח. האתר שולח רק את הדוח הזה, ורק אליך.';
+  else if (on) status = `הדוח הבא, על ${monthName(nx.ym)}, יישלח ב-${nx.date} אל ${esc(CAP.me.email)}.${r.lastSent ? ` נשלח לאחרונה: הדוח על ${monthName(r.lastSent.month)}.` : ''}`;
+  else status = 'הדוח החודשי כבוי.';
+  const err = on && r.lastError ? `<div class="note err" style="margin:0">השליחה של הדוח על ${monthName(r.lastError.month)} נכשלה. ${esc(errText({ code: r.lastError.error }))} אנסה שוב אוטומטית.</div>` : '';
+  return `<div class="rep-box">
+    <label class="chk"><input type="checkbox" id="setReport" ${on ? 'checked' : ''}> שלח לי דוח חוסרים במייל ב-10 לכל חודש, על החודש הקודם</label>
+    <div class="muted" style="font-size:13px">${status}</div>${err}
+    ${r.canSend ? `<div class="actions"><button class="btn small" data-act="report-send-now" data-month="${prev}" type="button">שלח לי עכשיו את הדוח על ${monthName(prev)}</button></div>` : ''}
+    ${r.canSend && on ? `<details class="adv"><summary>שליחה גם כשהאתר סגור (הגדרה חד-פעמית, 2 דקות)</summary><div class="inner">
+      <div class="muted" style="font-size:12.5px">האתר נרדם כשלא משתמשים בו. בלי ההגדרה הזו, הדוח יישלח רק כשתיכנס לאתר אחרי ה-10. כך מגדירים שהאתר יתעורר לבד כל בוקר:</div>
+      <ol class="steps"><li>פתח את <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com</a> עם אותו חשבון Google. ייפתח פרויקט חדש.</li><li>מחק את מה שכתוב שם, והדבק את הקוד שלמטה.</li><li>שמור (Ctrl+S). בשורה העליונה בחר <b>setup</b>, לחץ "הפעלה" ואשר את ההרשאות.</li></ol>
+      <textarea class="code" rows="6" readonly id="cronCode">${esc(cronScript())}</textarea>
+      <div class="actions"><button class="btn small" data-act="copy-cron" type="button">העתק את הקוד</button><span class="muted" style="font-size:12px">הקוד כולל קישור אישי. אל תשתף אותו.</span></div>
+    </div></details>` : ''}
+  </div>`;
 }
 function syncInputs(){ const p = period(); $('#pFrom').value = p.from; $('#pTo').value = p.to; $('#gq').value = S.settings.gmailQuery || DEFAULT_QUERY; }
 function switchTab(tab){
@@ -1217,6 +1301,69 @@ function switchTab(tab){
   for (const t of ['board','review','report','ask']) $('#tab-' + t).classList.toggle('hidden', t !== tab);
   if (location.hash !== '#' + tab) history.replaceState(null, '', location.pathname + '#' + tab);
 }
+
+/* ============================== PDF ============================== */
+// "הורד PDF" פותח את חלון ההדפסה של הדפדפן עם דוח נקי, ושם בוחרים "שמירה כ-PDF".
+// גם Ctrl+P רגיל מדפיס את אותו דוח נקי ולא את המסך.
+function periodLabel(p){
+  const ym = p.from.slice(0, 7);
+  if (p.from === ym + '-01' && p.to === monthEnd(ym)) return monthName(ym);
+  return `${fmtDateLong(p.from)} עד ${fmtDateLong(p.to)}`;
+}
+function printHtml(){
+  const s = stats();
+  const biz = (S.settings.bizNames.split(',')[0] || '').trim();
+  const missOut = s.missing.filter(t => t.dir === 'out'), missIn = s.missing.filter(t => t.dir === 'in');
+  const checkList = [...s.check, ...s.pending];
+  const docsOf = t => t._docs.map(d => `${DOC_TYPES[d.docType]}${d.number ? ' #' + d.number : ''}`).join(' + ');
+  const amt = t => `<td class="amt">${esc(money(t))}${t.origAmount ? `<div class="sub">${esc(fmtMoney(t.origAmount, t.origCurrency))}</div>` : ''}</td>`;
+  const COLS = {
+    base: { h: ['תאריך', 'בית עסק', 'תיאור בבנק', 'חשבון', 'סכום'], r: t => `<td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}</td><td class="sub">${esc(srcOf(t)?.label || '')}</td>${amt(t)}` },
+    docs: { h: ['תאריך', 'בית עסק', 'תיאור בבנק', 'מסמכים', 'סכום'], r: t => `<td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}</td><td>${esc(docsOf(t))}</td>${amt(t)}` },
+    reason: { h: ['תאריך', 'בית עסק', 'תיאור בבנק', 'למה', 'סכום'], r: t => `<td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}</td><td class="sub">${esc(reasonOf(t) || 'טרם סווג')}</td>${amt(t)}` }
+  };
+  const table = (list, kind) => `<table><thead><tr>${COLS[kind].h.map((h, i) => `<th${i === 4 ? ' class="amt"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>${list.map(t => `<tr>${COLS[kind].r(t)}</tr>`).join('')}</tbody></table>`;
+  const sec = (title, meta, list, kind, color, emptyText = 'אין.') => `<section class="p-sec"><h2 style="border-color:${color}">${title} <span class="cnt">${list.length}</span></h2>${meta && list.length ? `<div class="meta">${meta}</div>` : ''}${list.length ? table(list, kind) : `<div class="none">${emptyText}</div>`}</section>`;
+  const groups = groupByVendor(missOut);
+  const missTable = groups.length ? `<table><thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th class="amt">סכום</th></tr></thead>${groups.map(g => `<tbody class="grp"><tr class="vrow"><td colspan="4"><b>${esc(g.name)}</b> · ${g.list.length === 1 ? 'תנועה אחת' : g.list.length + ' תנועות'}</td><td class="amt"><b>${esc(fmtMoney(g.total))}</b></td></tr>${g.list.map(t => `<tr>${COLS.base.r(t)}</tr>`).join('')}</tbody>`).join('')}</table>` : '<div class="none">אין. לכל התשלומים שדורשים מסמך נמצא מסמך.</div>';
+  const pct = s.need.length ? Math.round(100 * s.covered.length / s.need.length) : null;
+  const sumRow = (label, list, cls = '') => `<tr class="${cls}"><td>${label}</td><td class="num">${list.length}</td><td class="amt">${esc(fmtMoney(s.sum(list)))}</td></tr>`;
+  const orphanSum = s.orphans.reduce((a, d) => a + (d.currency === 'ILS' || !d.currency ? (d.amount || 0) : 0), 0);
+  const accounts = [...new Set(s.tx.map(t => srcOf(t)?.label).filter(Boolean))];
+  const pending = S.docs.filter(d => d.review === 'pending').length;
+  const orphansSec = `<section class="p-sec"><h2 style="border-color:#5d6b7e">מסמכים שלא נמצא להם חיוב <span class="cnt">${s.orphans.length}</span></h2>${s.orphans.length ? `<div class="meta">אולי שולמו במזומן, בחשבון אחר או בכרטיס שלא הועלה. מסמך שהוצאת ללקוח: בדוק שהכסף נכנס</div><table><thead><tr><th>תאריך</th><th>ספק</th><th>סוג</th><th>מספר</th><th class="amt">סכום</th></tr></thead><tbody>${[...s.orphans].sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(d => `<tr><td class="dt">${fmtDateLong(d.date)}</td><td>${esc(d.vendor)}${d.dir === 'income' ? '<div class="sub">הוצאת ללקוח</div>' : ''}</td><td>${DOC_TYPES[d.docType]}</td><td>${esc(d.number)}</td><td class="amt">${esc(fmtMoney(d.amount, d.currency))}</td></tr>`).join('')}</tbody></table>` : '<div class="none">כל המסמכים בתקופה הותאמו לתנועה.</div>'}</section>`;
+  return `<header class="p-head"><div><div class="p-brand">Ka-Ching</div><div class="p-title">דוח התאמת בנק וחשבוניות · ${esc(periodLabel(s.p))}</div>${biz ? `<div class="p-biz">${esc(biz)}</div>` : ''}</div><div class="p-meta">תקופה: ${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)}<br>הופק: ${fmtDateLong(todayISO())}${S.demo ? '<br><b>נתוני דוגמה</b>' : ''}</div></header>
+    <section class="p-sec p-summary"><h2 style="border-color:#1d3b66">סיכום</h2>
+      <table class="sumt"><thead><tr><th>קטגוריה</th><th class="num">תנועות</th><th class="amt">סכום</th></tr></thead><tbody>
+        ${sumRow('חסר מסמך (חשבונית או קבלה)', s.missing, 'bad')}${sumRow('חסרה חשבונית מס', s.noInv, 'warn')}${sumRow('לבדיקה', checkList)}${sumRow('יש חשבונית, אין קבלה', s.noRec)}${sumRow('מותאם ומלא', s.complete, 'ok')}${sumRow('לא נדרש מסמך', s.notNeeded)}
+        <tr><td>מסמכים שלא נמצא להם חיוב</td><td class="num">${s.orphans.length}</td><td class="amt">${esc(fmtMoney(orphanSum))}</td></tr>
+        <tr class="tot"><td>סך הכל תנועות בתקופה</td><td class="num">${s.tx.length}</td><td class="amt"></td></tr>
+      </tbody></table>
+      <div class="meta">${pct == null ? '' : `כיסוי: ${pct}% מהתנועות שדורשות מסמך (${s.covered.length} מתוך ${s.need.length}). `}${accounts.length ? `חשבונות בדוח: ${esc(accounts.join(', '))}.` : 'לא הועלו תנועות לתקופה הזו.'}${pending ? ` ${pending} מסמכים ממתינים לאישור ולא נכללו בדוח.` : ''}</div>
+    </section>
+    <section class="p-sec"><h2 style="border-color:#b42318">תשלומים בלי חשבונית או קבלה <span class="cnt">${missOut.length}</span></h2>${missOut.length ? `<div class="meta">סך הכל ${esc(fmtMoney(s.sum(missOut)))}, לפי ספק</div>` : ''}${missTable}</section>
+    ${missIn.length ? sec('הכנסות שלא נמצאה עליהן קבלה שהוצאת', 'בדוק שהוצאת ללקוח חשבונית מס/קבלה', missIn, 'base', '#b42318') : ''}
+    ${sec('יש תשלום ואישור, אבל אין חשבונית מס', 'נמצא רק אישור תשלום, חשבון עסקה או מסמך אחר. יש לבקש מהספק חשבונית מס', s.noInv, 'docs', '#b54708')}
+    ${sec('לבדיקה', 'לא ברור אם צריך מסמך: העברות לאנשים פרטיים, צ׳קים, קניות שאולי פרטיות', checkList, 'reason', '#3538cd')}
+    ${orphansSec}
+    ${sec('יש חשבונית מס, אין קבלה', 'בדרך כלל מספיק כשהתשלום בכרטיס אשראי', s.noRec, 'docs', '#5d6b7e')}
+    ${sec('מותאם ומלא', '', s.complete, 'docs', '#067647')}
+    ${sec('לא נדרש מסמך', '', s.notNeeded, 'reason', '#98a2b3')}
+    <footer class="p-foot">הופק ב-Ka-Ching. הוצאות מתחת ל-${MIN_AMOUNT} ₪ לא נספרות. מסמכים שממתינים לאישור לא נכללים.</footer>`;
+}
+let printTitle = null;
+window.addEventListener('beforeprint', () => {
+  let root = $('#printRoot');
+  if (!root){ root = document.createElement('div'); root.id = 'printRoot'; document.body.append(root); }
+  rederive();
+  root.innerHTML = printHtml();
+  if (printTitle == null) printTitle = document.title;
+  document.title = `Ka-Ching דוח חוסרים ${periodLabel(period()).replace(/\//g, '-')}`;
+});
+window.addEventListener('afterprint', () => {
+  if (printTitle != null){ document.title = printTitle; printTitle = null; }
+  const root = $('#printRoot'); if (root) root.innerHTML = '';
+});
 
 /* ============================== ייצוא ============================== */
 function exportXlsx(){
@@ -1415,10 +1562,36 @@ document.addEventListener('click', e => {
     }
     case 'copy-req': { const g = UI.missingGroups?.[+el.dataset.group]; if (g) copyText(requestText(g)); break; }
     case 'export': exportXlsx(); break;
+    case 'pdf': window.print(); break;
     case 'save-settings': {
       S.settings.bizNames = $('#setBiz').value.trim(); S.settings.aiMode = $('#setMode').value;
       S.settings.maxThreads = Math.max(10, Math.min(2000, parseInt($('#setMax').value) || 300));
-      markDirty('settings'); closeModal(); renderCaps(); toast('ההגדרות נשמרו.'); break;
+      const rep = $('#setReport');
+      const turnOn = !!rep?.checked && S.settings.monthlyReport !== true;
+      if (rep){ S.settings.monthlyReport = rep.checked; if (turnOn) S.settings.monthlyReportSince = reportSince(); }
+      markDirty('settings');
+      // הפעלה ראשונה: אחרי שההגדרה נשמרה, עוברים ל-Google לאשר שליחת מייל
+      if (rep?.checked && CAP.report && !CAP.report.canSend){
+        el.disabled = true; el.textContent = 'שומר…';
+        clearTimeout(saveTimer); flush();
+        saveChain.then(() => { location.href = '/auth/login?send=1&hint=' + encodeURIComponent(CAP.me.email); });
+        break;
+      }
+      closeModal(); renderCaps(); toast(turnOn ? `נשמר. דוח החוסרים יישלח אליך ב-${nextReport()?.date || '10 לחודש'}.` : 'ההגדרות נשמרו.'); break;
+    }
+    case 'report-send-now': {
+      const ym = el.dataset.month;
+      el.disabled = true; el.textContent = 'שולח…';
+      clearTimeout(saveTimer); flush();
+      saveChain.then(() => api('/report/send-now', { method: 'POST', body: { month: ym } }))
+        .then(r => { toast(`הדוח על ${monthName(ym)} נשלח אל ${CAP.me.email}. בדוק את תיבת הדואר.`, 6000); el.textContent = 'נשלח ✓'; })
+        .catch(e => { toast(errText(e), 7000); el.disabled = false; el.textContent = `שלח לי עכשיו את הדוח על ${monthName(ym)}`; });
+      break;
+    }
+    case 'copy-cron': {
+      const t = $('#cronCode'); if (!t) break;
+      navigator.clipboard?.writeText(t.value).then(() => toast('הקוד הועתק.'), () => { t.select(); toast('סמן את הקוד והעתק עם Ctrl+C.'); });
+      break;
     }
     case 'wipe': {
       if (el.dataset.sure !== '1'){ el.dataset.sure = '1'; el.textContent = 'בטוח? הפעולה מוחקת הכל. לחץ שוב'; break; }
@@ -1431,6 +1604,12 @@ document.addEventListener('click', e => {
 
 /* ============================== הפעלה ============================== */
 loadDemo(); syncInputs(); rederive(); renderAll();
-const fromHash = () => { const h = (location.hash || '').slice(1); if (['board','review','report','ask'].includes(h) && h !== UI.tab) switchTab(h); };
+const fromHash = () => {
+  const h = (location.hash || '').slice(1);
+  // קישור מהמייל: #report:2026-10 פותח את הדוח על החודש הזה
+  const m = h.match(/^report:(\d{4}-(0[1-9]|1[0-2]))$/);
+  if (m){ UI.hashMonth = m[1]; setMonthPeriod(m[1]); switchTab('report'); return; }
+  if (['board','review','report','ask'].includes(h) && h !== UI.tab) switchTab(h);
+};
 fromHash(); window.addEventListener('hashchange', fromHash);
 init();
