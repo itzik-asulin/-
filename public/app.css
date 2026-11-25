@@ -224,6 +224,27 @@ td.dt{font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap;colo
 .ask-row textarea{flex:1 1 320px;min-height:64px}
 .presets{display:flex;gap:6px;flex-wrap:wrap}
 
+/* ממתינות לאישור */
+.tab .cnt.acc{background:var(--accent-soft);color:var(--accent)}
+.rv{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
+.rv .note{margin:0}
+.rv-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.rv-t{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15.5px}
+.rv-t .num{font-weight:600}
+.rv-src{font-size:12.5px;color:var(--muted);margin-inline-start:auto}
+.rv-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px;align-items:end}
+.rv-grid .field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.rv-grid .field>span{font-size:12.5px;color:var(--muted)}
+.rv-grid input,.rv-grid select{width:100%;min-height:38px;padding:5px 10px}
+.rv-grid .ltr{direction:ltr;text-align:right}
+.rv-wide{grid-column:span 2}
+.rv .need{border-color:#f0c27a;background:var(--warn-soft)}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);min-height:38px;cursor:pointer}
+.chk input{width:18px;height:18px;min-height:0;accent-color:var(--accent)}
+.rv-f{display:flex;gap:8px;flex-wrap:wrap}
+.pend-link{display:block;width:100%;border:0;border-bottom:1px solid var(--line);background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:13.5px;padding:10px 18px;text-align:start;cursor:pointer}
+.pend-link:hover{text-decoration:underline}
+
 /* סטטוס בתחתית: מופיע רק כשיש תקלה */
 .caps{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--bad);padding:16px 0 28px}
 .caps:empty{padding:12px 0}
@@ -252,6 +273,7 @@ td.dt{font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap;colo
 .hidden{display:none!important}
 
 @media (max-width:1100px){
+  .rv-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .board{grid-template-columns:1fr}
   .list{max-height:none}
   .summary{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -288,6 +310,12 @@ td.dt{font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap;colo
   .tab .cnt{position:absolute;top:2px;left:calc(50% - 26px);font-size:11px;padding:0 6px}
   .grid2{grid-template-columns:1fr}
   .toasts{bottom:84px}
+  body:not([data-tab="board"]) .summary{display:none}
+  .rv{padding:14px}
+  .rv-src{margin:0;width:100%}
+  .rv-wide{grid-column:1/-1}
+  .rv-f .btn{flex:1 1 0}
+  .tab span:not(.cnt){font-size:11.5px}
 }
 @media (max-width:380px){
   .summary{grid-template-columns:1fr 1fr}

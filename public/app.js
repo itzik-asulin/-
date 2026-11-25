@@ -65,6 +65,7 @@ const DOC_TYPES = {
   credit_note: 'חשבונית זיכוי',
   other: 'מסמך אחר'
 };
+const isApproved = d => !d.review || d.review === 'approved'; // מסמך חדש ממתין לאישור, ורק מסמך מאושר נכנס להתאמה ולדוח
 const ST = {
   missing:    { label: 'חסר מסמך', cls: 'bad', order: 0 },
   no_invoice: { label: 'חסרה חשבונית מס', cls: 'warn', order: 1 },
@@ -81,7 +82,7 @@ const S = {
   sources: [], tx: [], emails: [], docs: [], links: [], rejects: [], overrides: {}, threads: {},
   demo: false
 };
-const UI = { txf: 'all', mf: 'all', df: 'all', txLimit: 150, mailLimit: 150, docLimit: 150, tab: 'board', notes: { bank: null, mail: null, doc: null } };
+const UI = { txf: 'all', mf: 'all', df: 'all', txLimit: 150, mailLimit: 150, docLimit: 150, tab: 'board', notes: { bank: null, mail: null, doc: null }, rvDraft: {} };
 const jobs = {};
 const CAP = { ready: false, me: null, ai: false, gmail: 'unknown', saveOk: null };
 
@@ -237,8 +238,8 @@ function loadDemo(){
     doc('d6','2026-10-18','PayPal','payment_confirmation',199,{ aliases: ['Adobe'], desc: 'אישור תשלום, לא חשבונית' }),
     doc('d7','2026-10-22','סלקום ישראל בע"מ','tax_invoice_receipt',89.90),
     doc('d8','2026-11-05','Zoom Video Communications','receipt',15.99,{ currency: 'USD', foreign: true, vat: null }),
-    doc('d9','2026-10-25','מגה ספורט','tax_invoice_receipt',349),
-    doc('d10','2026-11-01','הוט מובייל','tax_invoice',75,{ linkOnly: true, desc: 'החשבונית בקישור בלבד' })
+    doc('d9','2026-10-25','מגה ספורט','tax_invoice_receipt',349,{ review: 'pending', taxId: '513456789', desc: 'נעלי ספורט' }),
+    doc('d10','2026-11-01','הוט מובייל','tax_invoice',75,{ linkOnly: true, desc: 'החשבונית בקישור בלבד', review: 'pending', number: '' })
   ];
   const em = (id, date, from, subject, status, docIds = [], note = '') => ({ id, threadId: id, date, from, subject, viewUrl: null, status, docIds, note });
   S.emails = [
@@ -314,11 +315,11 @@ function addDocs(res, ctx){
       origin: ctx.origin, emailId: ctx.emailId || null, viewUrl: ctx.viewUrl || null,
       fileName: str(x.source) && str(x.source) !== 'body' ? str(x.source) : (ctx.fileName || null),
       docType: DOC_TYPES[x.docType] ? x.docType : 'other',
-      vendor: vendor || 'לא ידוע', customer: str(x.customer), aliases: arr(x.aliases), taxId: str(x.taxId),
+      vendor: vendor || 'לא ידוע', customer: str(x.customer), aliases: arr(x.aliases), taxId: /\d/.test(str(x.taxId)) ? str(x.taxId).replace(/[^\d-]/g, '') : '', category: '',
       date: parseDate(str(x.date)) || ctx.fallbackDate || null, amount: amount == null ? null : Math.abs(amount), currency,
       vat: num(x.vat), number: str(x.number), dir: x.direction === 'income' ? 'income' : 'expense',
       exempt: !!x.exempt, foreign: !!x.foreign || currency !== 'ILS', linkOnly: !!x.linkOnly,
-      cardLast4: str(x.cardLast4), desc: str(x.description)
+      cardLast4: str(x.cardLast4), desc: str(x.description), review: 'pending'
     };
     const dup = S.docs.find(o => o.id === d.id || (d.number && o.number === d.number && o.amount != null && d.amount != null && Math.abs(o.amount - d.amount) < 0.02 && nameSim(o.vendor, d.vendor) > 0.45));
     if (dup){ out.push(dup); continue; }
@@ -384,7 +385,7 @@ async function scanGmail(force = false){
   markDirty('emails', 'docs', 'threads');
   localMatch();
   rederive(); renderAll();
-  const summary = `${done} שרשורים נקראו, ${newDocs} מסמכים חדשים${errors ? `, ${errors} מיילים לא נקראו` : ''}.`;
+  const summary = `${done} שרשורים נקראו, ${newDocs} מסמכים חדשים${newDocs ? ' (ממתינים לאישור)' : ''}${errors ? `, ${errors} מיילים לא נקראו` : ''}.`;
   if (fatal?.code === 'cancelled') setNote('mail', 'info', `הסריקה הופסקה. ${summary} לחיצה על "סרוק" תמשיך מאותה נקודה.`);
   else if (fatal) setNote('mail', 'err', `${errText(fatal)} ${done ? summary : ''}`);
   else setNote('mail', 'okn', work.length ? `הסריקה הסתיימה: ${summary}` : 'אין מיילים חדשים בתקופה הזו. אפשר להרחיב את התקופה או לשנות את מילות החיפוש.');
@@ -438,7 +439,8 @@ async function importDocFiles(files){
   }
   delete jobs.doc;
   markDirty('docs'); localMatch(); rederive(); renderAll();
-  setNote('doc', fatal ? 'err' : 'okn', fatal ? errText(fatal) : `נוספו ${added} מסמכים.`);
+  setNote('doc', fatal ? 'err' : 'okn', fatal ? errText(fatal) : added ? `נוספו ${added} מסמכים. הם ממתינים לאישור שלך.` : 'לא נוספו מסמכים.');
+  if (added && !fatal) switchTab('review');
 }
 
 /* ============================== ייבוא דפי בנק ואשראי ============================== */
@@ -776,7 +778,7 @@ function localMatch(){
   const txDocs = new Map();
   const docById = new Map(S.docs.map(d => [d.id, d]));
   for (const l of S.links){ if (!txDocs.has(l.t)) txDocs.set(l.t, []); txDocs.get(l.t).push(docById.get(l.d)); }
-  const docs = S.docs.filter(d => !used.has(d.id) && d.amount != null && d.date);
+  const docs = S.docs.filter(d => isApproved(d) && !used.has(d.id) && d.amount != null && d.date);
   const byAmt = new Map();
   for (const d of docs){ const k = Math.round(d.amount); for (const kk of [k - 1, k, k + 1]){ if (!byAmt.has(kk)) byAmt.set(kk, []); byAmt.get(kk).push(d); } }
   const cands = [];
@@ -821,7 +823,7 @@ async function aiMatchPass(ctl){
   const usedDocs = new Set(S.links.map(l => l.d));
   const rej = new Set(S.rejects);
   const openTx = S.tx.filter(t => !t._docs.length && ['yes','maybe'].includes(needOf(t)));
-  const openDocs = S.docs.filter(d => !usedDocs.has(d.id) && d.date);
+  const openDocs = S.docs.filter(d => isApproved(d) && !usedDocs.has(d.id) && d.date);
   if (!openTx.length || !openDocs.length) return 0;
   const months = new Map();
   for (const t of openTx){ const m = t.date.slice(0, 7); if (!months.has(m)) months.set(m, []); months.get(m).push(t); }
@@ -878,7 +880,7 @@ async function runMatch(){
 
 /* ============================== נגזרות ============================== */
 function rederive(){
-  const docById = new Map(S.docs.map(d => [d.id, d]));
+  const docById = new Map(S.docs.filter(isApproved).map(d => [d.id, d]));
   const txById = new Map(S.tx.map(t => [t.id, t]));
   S.links = S.links.filter(l => docById.has(l.d) && txById.has(l.t));
   for (const t of S.tx) t._docs = [];
@@ -915,14 +917,14 @@ function stats(){
   const sum = list => list.reduce((a, t) => a + t.amount, 0);
   const need = tx.filter(t => t._status !== 'not_needed');
   const covered = tx.filter(t => ['complete','no_receipt'].includes(t._status));
-  const orphans = S.docs.filter(d => !d._tx.length && inPeriod(d.date, p));
+  const orphans = S.docs.filter(d => isApproved(d) && !d._tx.length && inPeriod(d.date, p));
   return { tx, p, missing: by('missing'), noInv: by('no_invoice'), noRec: by('no_receipt'), check: by('check'), pending: by('pending'), complete: by('complete'), notNeeded: by('not_needed'), need, covered, orphans, sum };
 }
 
 /* ============================== תצוגה ============================== */
 function chip(st){ const m = ST[st]; return `<span class="chip ${m.cls}">${m.label}</span>`; }
 function money(t){ return `${t.dir === 'in' ? '+' : ''}${fmtMoney(t.amount)}`; }
-function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReport(); renderCaps(); }
+function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderCaps(); }
 function renderBanner(){
   const el = $('#demoBanner');
   if (!S.demo){ el.innerHTML = ''; return; }
@@ -999,19 +1001,90 @@ function renderDocs(){
   const p = period();
   const wide = { from: addDays(p.from, -45), to: addDays(p.to, 45) };
   const q = $('#docSearch').value.trim().toLowerCase();
-  let list = S.docs.filter(d => !d.date || inPeriod(d.date, wide));
+  const pend = S.docs.filter(d => d.review === 'pending').length;
+  const pendLi = pend ? `<li><button class="pend-link" data-act="goto-review" type="button">${pend} מסמכים ממתינים לאישור שלך ←</button></li>` : '';
+  let list = S.docs.filter(d => isApproved(d) && (!d.date || inPeriod(d.date, wide)));
   if (UI.df === 'matched') list = list.filter(d => d._tx.length);
   if (UI.df === 'orphan') list = list.filter(d => !d._tx.length);
   if (q) list = list.filter(d => [d.vendor, d.number, d.amount, ...(d.aliases || [])].join(' ').toLowerCase().includes(q));
   list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   $('#docsMeta').textContent = `${list.length} מסמכים`;
-  if (!list.length){ $('#docList').innerHTML = `<li class="empty">${S.docs.length ? 'אין מסמכים בסינון הזה.' : 'עוד אין מסמכים.'}</li>`; return; }
+  if (!list.length){ $('#docList').innerHTML = pendLi + `<li class="empty">${S.docs.some(isApproved) ? 'אין מסמכים בסינון הזה.' : 'עוד אין מסמכים מאושרים.'}</li>`; return; }
   const shown = list.slice(0, UI.docLimit);
-  $('#docList').innerHTML = shown.map(d => {
+  $('#docList').innerHTML = pendLi + shown.map(d => {
     const matched = d._tx.length;
     const sub = [`<span class="chip type">${DOC_TYPES[d.docType]}</span>`, d.number ? `מס׳ ${esc(d.number)}` : '', d.dir === 'income' ? 'הכנסה (הוצאת אתה)' : '', d.exempt ? 'עוסק פטור' : '', d.linkOnly ? 'קישור בלבד' : '', d.origin === 'upload' ? 'הועלה ידנית' : (d.viewUrl ? `<a href="${esc(d.viewUrl)}" target="_blank" rel="noopener">מייל</a>` : 'מהמייל')].filter(Boolean).join(' · ');
     return `<li class="row ${matched ? 'st-complete' : ''}"><span class="d">${fmtDate(d.date)}</span><span class="n">${esc(d.vendor)}</span><span class="a num">${esc(fmtMoney(d.amount, d.currency))}</span><span class="sub">${sub}</span><span class="x">${matched ? '<span class="chip ok">מותאם</span>' : '<span class="chip muted">ללא תנועה</span>'}<button class="iconbtn" data-act="doc" data-id="${d.id}" aria-label="עריכת המסמך" type="button">⋯</button></span></li>`;
   }).join('') + (list.length > shown.length ? `<li><button class="more" data-act="more" data-what="doc" type="button">הצג עוד</button></li>` : '');
+}
+/* ============================== ממתינות לאישור ============================== */
+// כל מסמך חדש (מהמייל או מהעלאה) מחכה כאן. רק אחרי אישור הוא נכנס להתאמה ולדוח.
+const DEFAULT_CATS = ['דלק', 'רכב', 'תקשורת', 'תוכנה ומנויים', 'ציוד משרדי', 'שירותים מקצועיים', 'חשמל ומים', 'שכירות', 'כיבוד', 'פרסום', 'נסיעות', 'אחר'];
+function categoryList(){
+  const set = new Set(DEFAULT_CATS);
+  for (const x of [...S.tx, ...S.docs]) if (x.category) set.add(x.category);
+  return [...set];
+}
+function findDup(d){
+  return S.docs.find(o => o !== d && isApproved(o) && o.amount != null && d.amount != null && Math.abs(o.amount - d.amount) < 0.02 && o.date === d.date && nameSim(o.vendor, d.vendor) > 0.5);
+}
+function reviewCard(d){
+  const dr = UI.rvDraft[d.id] || {};
+  const val = f => esc(dr[f] ?? (d[f] ?? ''));
+  const need = f => String(dr[f] ?? (d[f] ?? '')).trim() === '' ? ' need' : '';
+  const sel = (f, opts) => opts.map(([k, l]) => `<option value="${esc(k)}" ${String(dr[f] ?? d[f]) === k ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  const cur = String(dr.currency ?? d.currency ?? 'ILS');
+  const curs = [...new Set(['ILS', 'USD', 'EUR', 'GBP', cur])].map(c => [c, c === 'ILS' ? '₪ שקל' : c]);
+  const m = d.emailId ? S.emails.find(e => e.id === d.emailId) : null;
+  const src = d.origin === 'upload' ? `הועלה ידנית${d.fileName ? ` · ${esc(d.fileName)}` : ''}`
+    : `מהמייל${m ? ` · ${esc(m.from)}` : ''}${d.viewUrl ? ` · <a href="${esc(d.viewUrl)}" target="_blank" rel="noopener">פתח את המייל</a>` : ''}`;
+  const dup = findDup(d);
+  const exempt = dr.exempt ?? d.exempt;
+  return `<article class="rv" data-id="${d.id}">
+    <div class="rv-h"><div class="rv-t"><b>${esc(d.vendor)}</b><span class="num">${esc(fmtMoney(d.amount, d.currency))}</span><span class="chip type">${DOC_TYPES[d.docType] || 'מסמך'}</span></div><div class="rv-src">${src}</div></div>
+    ${dup ? `<div class="note info">ייתכן שזה כפול: כבר יש מסמך מאושר של ${esc(dup.vendor)} באותו סכום ובאותו תאריך.</div>` : ''}
+    ${d.linkOnly ? `<div class="note info">המסמך עצמו נמצא בקישור בתוך המייל. כדאי לפתוח את המייל ולשמור אותו.</div>` : ''}
+    <div class="rv-grid">
+      <label class="field rv-wide"><span>ספק</span><input type="text" data-f="vendor" value="${val('vendor')}" class="${need('vendor')}"></label>
+      <label class="field"><span>ח.פ / ע.מ</span><input type="text" data-f="taxId" inputmode="numeric" value="${val('taxId')}" class="ltr${need('taxId')}"></label>
+      <label class="field"><span>סוג מסמך</span><select data-f="docType">${sel('docType', Object.entries(DOC_TYPES))}</select></label>
+      <label class="field"><span>מספר מסמך</span><input type="text" data-f="number" value="${val('number')}" class="ltr${need('number')}"></label>
+      <label class="field"><span>תאריך</span><input type="date" data-f="date" value="${val('date')}" class="${need('date')}"></label>
+      <label class="field"><span>סכום כולל מע״מ</span><input type="number" step="0.01" data-f="amount" value="${val('amount')}" class="ltr${need('amount')}"></label>
+      <label class="field"><span>מע״מ</span><input type="number" step="0.01" data-f="vat" value="${val('vat')}" class="ltr"></label>
+      <label class="field"><span>מטבע</span><select data-f="currency">${sel('currency', curs)}</select></label>
+      <label class="field"><span>סוג</span><select data-f="dir">${sel('dir', [['expense', 'הוצאה (קיבלתי)'], ['income', 'הכנסה (הוצאתי ללקוח)']])}</select></label>
+      <label class="field"><span>קטגוריה</span><input type="text" data-f="category" list="catList" value="${val('category')}" placeholder="למשל: דלק"></label>
+      <label class="field rv-wide"><span>תיאור</span><input type="text" data-f="desc" value="${val('desc')}"></label>
+      <label class="chk"><input type="checkbox" data-f="exempt" ${exempt ? 'checked' : ''}> הספק עוסק פטור</label>
+    </div>
+    <div class="rv-f"><button class="btn primary" data-act="rv-approve" data-id="${d.id}" type="button">אשר</button><button class="btn ghost danger" data-act="rv-reject" data-id="${d.id}" type="button">זו לא חשבונית</button></div>
+  </article>`;
+}
+function renderReview(){
+  const list = S.docs.filter(d => d.review === 'pending').sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const cnt = $('#reviewCnt'); cnt.textContent = list.length || ''; cnt.classList.toggle('hidden', !list.length);
+  const el = $('#tab-review');
+  if (!list.length){ el.innerHTML = `<div class="card"><div class="empty"><b>אין מסמכים שממתינים לאישור</b><br>חשבוניות וקבלות שיימצאו במייל או שתעלה יופיעו כאן לבדיקה, לפני שהן נכנסות להתאמה.</div></div>`; return; }
+  el.innerHTML = `<div class="card"><div class="card-h"><h2>ממתינות לאישור</h2><span class="meta">${list.length} מסמכים. בדוק את מה שה-AI קרא, תקן אם צריך ואשר. רק מסמך מאושר נכנס להתאמה ולדוח.</span><div class="actions"><button class="btn" data-act="rv-approve-all" type="button">אשר הכל (${list.length})</button></div></div></div>`
+    + `<datalist id="catList">${categoryList().map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist>`
+    + list.map(reviewCard).join('');
+}
+function readReview(card, d){
+  const v = f => card.querySelector(`[data-f="${f}"]`);
+  d.vendor = v('vendor').value.trim() || d.vendor;
+  d.taxId = v('taxId').value.replace(/[^\d-]/g, '');
+  d.docType = v('docType').value;
+  d.number = v('number').value.trim();
+  d.date = v('date').value || d.date;
+  const a = parseFloat(v('amount').value); d.amount = isFinite(a) ? a : d.amount;
+  const t = parseFloat(v('vat').value); d.vat = isFinite(t) ? t : null;
+  d.currency = (v('currency').value || 'ILS').toUpperCase(); d.foreign = d.currency !== 'ILS' || !!d.foreign;
+  d.dir = v('dir').value;
+  d.category = v('category').value.trim();
+  d.desc = v('desc').value.trim();
+  d.exempt = v('exempt').checked;
+  delete UI.rvDraft[d.id];
 }
 function txTable(list, opts = {}){
   return `<div class="tbl-wrap"><table>${opts.head === false ? '' : '<thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th style="text-align:end">סכום</th><th>מצב</th><th></th></tr></thead>'}<tbody>${list.map(t => {
@@ -1093,7 +1166,7 @@ function openTx(id){
 function openLink(id, q = ''){
   const t = S.tx.find(x => x.id === id); if (!t) return;
   const linked = new Set(t._docs.map(d => d.id));
-  let cands = S.docs.filter(d => !linked.has(d.id)).map(d => ({ d, s: (docSide(d) === t.dir ? 0.2 : 0) + 0.45 * Math.max(amountScore(t, d), d.amount ? Math.max(0, 1 - Math.abs(d.amount - t.amount) / Math.max(1, t.amount)) * 0.5 : 0) + 0.15 * dateScore(t, d) + 0.2 * nameScore(t, d) }));
+  let cands = S.docs.filter(d => isApproved(d) && !linked.has(d.id)).map(d => ({ d, s: (docSide(d) === t.dir ? 0.2 : 0) + 0.45 * Math.max(amountScore(t, d), d.amount ? Math.max(0, 1 - Math.abs(d.amount - t.amount) / Math.max(1, t.amount)) * 0.5 : 0) + 0.15 * dateScore(t, d) + 0.2 * nameScore(t, d) }));
   if (q) cands = cands.filter(c => [c.d.vendor, c.d.number, c.d.amount, ...(c.d.aliases || [])].join(' ').toLowerCase().includes(q.toLowerCase()));
   cands.sort((a, b) => b.s - a.s);
   const body = `<div class="muted">${esc(t.merchant || t.desc)} · <span class="num">${esc(money(t))}</span> · ${fmtDateLong(t.date)}</div>
@@ -1113,6 +1186,9 @@ function openDoc(id){
       <div class="field"><label for="da">סכום כולל מע״מ</label><input type="number" step="0.01" id="da" value="${d.amount ?? ''}" style="direction:ltr"></div>
       <div class="field"><label for="dc">מטבע</label><input type="text" id="dc" value="${esc(d.currency)}" style="direction:ltr"></div>
       <div class="field"><label for="dn">מספר מסמך</label><input type="text" id="dn" value="${esc(d.number)}"></div>
+      <div class="field"><label for="dtx">ח.פ / ע.מ</label><input type="text" id="dtx" inputmode="numeric" value="${esc(d.taxId || '')}" style="direction:ltr"></div>
+      <div class="field"><label for="dvat">מע״מ</label><input type="number" step="0.01" id="dvat" value="${d.vat ?? ''}" style="direction:ltr"></div>
+      <div class="field"><label for="dcat">קטגוריה</label><input type="text" id="dcat" list="catList2" value="${esc(d.category || '')}"><datalist id="catList2">${categoryList().map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></div>
       <div class="field"><label for="dr">כיוון</label><select id="dr"><option value="expense" ${d.dir === 'expense' ? 'selected' : ''}>הוצאה (קיבלתי)</option><option value="income" ${d.dir === 'income' ? 'selected' : ''}>הכנסה (הוצאתי ללקוח)</option></select></div>
       <div class="field"><label for="de">&nbsp;</label><label style="flex-direction:row;align-items:center;gap:6px;font-size:14px;color:var(--ink)"><input type="checkbox" id="de" ${d.exempt ? 'checked' : ''}> הספק עוסק פטור</label></div>
     </div>
@@ -1136,8 +1212,9 @@ function openSettings(){
 function syncInputs(){ const p = period(); $('#pFrom').value = p.from; $('#pTo').value = p.to; $('#gq').value = S.settings.gmailQuery || DEFAULT_QUERY; }
 function switchTab(tab){
   UI.tab = tab;
+  document.body.dataset.tab = tab;
   for (const b of $$('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-  for (const t of ['board','report','ask']) $('#tab-' + t).classList.toggle('hidden', t !== tab);
+  for (const t of ['board','review','report','ask']) $('#tab-' + t).classList.toggle('hidden', t !== tab);
   if (location.hash !== '#' + tab) history.replaceState(null, '', location.pathname + '#' + tab);
 }
 
@@ -1184,7 +1261,7 @@ let askCtl = null;
 function digest(){
   const s = stats();
   const tl = s.tx.map(t => `${t.date} | ${srcOf(t)?.label || ''} | ${t.merchant || '-'} | ${t.desc} | ${t.dir === 'in' ? '+' : '-'}${t.amount}${t.origAmount ? ` (${t.origAmount} ${t.origCurrency})` : ''} | ${ST[t._status].label} | ${t.category || ''} | ${t._docs.map(d => DOC_TYPES[d.docType] + ' ' + (d.number || '')).join(' + ')}`);
-  const dl = S.docs.filter(d => inPeriod(d.date, { from: addDays(s.p.from, -45), to: addDays(s.p.to, 45) })).map(d => `${d.date} | ${d.vendor} | ${DOC_TYPES[d.docType]} | ${d.number || '-'} | ${d.amount} ${d.currency} | מע"מ ${d.vat ?? '?'} | ${d.dir === 'income' ? 'הכנסה' : 'הוצאה'} | ${d._tx.length ? 'מותאם' : 'ללא תנועה'}`);
+  const dl = S.docs.filter(d => isApproved(d) && inPeriod(d.date, { from: addDays(s.p.from, -45), to: addDays(s.p.to, 45) })).map(d => `${d.date} | ${d.vendor} | ${DOC_TYPES[d.docType]} | ${d.number || '-'} | ${d.amount} ${d.currency} | מע"מ ${d.vat ?? '?'} | ${d.dir === 'income' ? 'הכנסה' : 'הוצאה'} | ${d._tx.length ? 'מותאם' : 'ללא תנועה'}`);
   let txt = `תקופה: ${s.p.from} עד ${s.p.to}\n\nתנועות (תאריך | חשבון | בית עסק | תיאור | סכום | מצב | קטגוריה | מסמכים):\n${tl.join('\n')}\n\nמסמכים (תאריך | ספק | סוג | מספר | סכום | מע"מ | כיוון | מצב):\n${dl.join('\n')}`;
   if (txt.length > 200000) txt = txt.slice(0, 200000) + '\n(הנתונים קוצרו)';
   return txt;
@@ -1231,6 +1308,16 @@ for (const id of ['#pFrom', '#pTo']) $(id).addEventListener('change', () => {
 });
 for (const b of $$('.tab')) b.addEventListener('click', () => switchTab(b.dataset.tab));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+// שומרים טיוטה של מה שהקלדת בכרטיסי האישור, כדי שרענון של המסך לא ימחק אותה
+function rvDraftCapture(e){
+  const f = e.target.dataset?.f, card = e.target.closest?.('#tab-review .rv');
+  if (!f || !card) return;
+  const id = card.dataset.id;
+  (UI.rvDraft[id] = UI.rvDraft[id] || {})[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  if (e.target.classList.contains('need') && e.target.value.trim()) e.target.classList.remove('need');
+}
+document.addEventListener('change', rvDraftCapture);
+document.addEventListener('input', rvDraftCapture);
 document.addEventListener('input', e => { if (e.target.id === 'linkSearch'){ const v = e.target.value; const id = e.target.dataset.tx; clearTimeout(UI.lt); UI.lt = setTimeout(() => { openLink(id, v); const i = $('#linkSearch'); if (i){ i.focus(); i.setSelectionRange(v.length, v.length); } }, 250); } });
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act], [data-txf], [data-mf], [data-df], [data-preset]');
@@ -1280,12 +1367,39 @@ document.addEventListener('click', e => {
       break;
     }
     case 'doc': openDoc(id); break;
+    case 'goto-review': switchTab('review'); window.scrollTo({ top: 0, behavior: 'smooth' }); break;
+    case 'rv-approve': {
+      const d = S.docs.find(x => x.id === id), card = el.closest('.rv'); if (!d || !card) break;
+      readReview(card, d); d.review = 'approved';
+      markDirty('docs'); localMatch(); rederive(); renderAll();
+      const t = d._tx[0];
+      toast(t ? `אושר והותאם לתנועה: ${t.merchant || t.desc}, ${fmtMoney(t.amount)}` : 'אושר. עוד לא נמצאה תנועה מתאימה.');
+      break;
+    }
+    case 'rv-approve-all': {
+      let n = 0;
+      for (const card of $$('#tab-review .rv')){ const d = S.docs.find(x => x.id === card.dataset.id); if (d){ readReview(card, d); d.review = 'approved'; n++; } }
+      markDirty('docs'); localMatch(); rederive(); renderAll();
+      toast(`${n} מסמכים אושרו.`);
+      break;
+    }
+    case 'rv-reject': {
+      if (el.dataset.sure !== '1'){ el.dataset.sure = '1'; el.textContent = 'בטוח? לחץ שוב'; break; }
+      const d = S.docs.find(x => x.id === id); if (!d) break;
+      d.review = 'rejected'; delete UI.rvDraft[id];
+      S.links = S.links.filter(l => l.d !== id);
+      markDirty('docs', 'links'); rederive(); renderAll();
+      toast('המסמך הוסר מהרשימה.');
+      break;
+    }
     case 'save-doc': {
       const d = S.docs.find(x => x.id === id); if (!d) break;
       d.vendor = $('#dv').value.trim() || d.vendor; d.docType = $('#dt').value; d.date = $('#dd').value || d.date;
       const a = parseFloat($('#da').value); d.amount = isFinite(a) ? a : d.amount;
       d.currency = ($('#dc').value.trim() || 'ILS').toUpperCase(); d.foreign = d.currency !== 'ILS' || d.foreign;
       d.number = $('#dn').value.trim(); d.dir = $('#dr').value; d.exempt = $('#de').checked;
+      d.taxId = $('#dtx').value.replace(/[^\d-]/g, ''); d.category = $('#dcat').value.trim();
+      const vt = parseFloat($('#dvat').value); d.vat = isFinite(vt) ? vt : null;
       markDirty('docs'); localMatch(); rederive(); renderAll(); closeModal(); toast('המסמך נשמר.'); break;
     }
     case 'del-doc': {
@@ -1317,6 +1431,6 @@ document.addEventListener('click', e => {
 
 /* ============================== הפעלה ============================== */
 loadDemo(); syncInputs(); rederive(); renderAll();
-const fromHash = () => { const h = (location.hash || '').slice(1); if (['board','report','ask'].includes(h) && h !== UI.tab) switchTab(h); };
+const fromHash = () => { const h = (location.hash || '').slice(1); if (['board','review','report','ask'].includes(h) && h !== UI.tab) switchTab(h); };
 fromHash(); window.addEventListener('hashchange', fromHash);
 init();

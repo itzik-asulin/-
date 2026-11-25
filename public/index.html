@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="/app.css">
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
-<body>
+<body data-tab="board">
 <header class="topbar">
   <div class="wrap top">
     <div class="brand">
@@ -51,6 +51,7 @@
 
   <nav class="tabs" role="tablist" aria-label="תצוגות">
     <button class="tab" role="tab" id="tabbtn-board" data-tab="board" aria-selected="true" type="button"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span>לוח עבודה</span></button>
+    <button class="tab" role="tab" id="tabbtn-review" data-tab="review" aria-selected="false" type="button"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg><span>ממתינות לאישור</span><span class="cnt acc hidden" id="reviewCnt"></span></button>
     <button class="tab" role="tab" id="tabbtn-report" data-tab="report" aria-selected="false" type="button"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h5"/></svg><span>דוח חוסרים</span><span class="cnt" id="reportCnt"></span></button>
     <button class="tab" role="tab" id="tabbtn-ask" data-tab="ask" aria-selected="false" type="button"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v10H9l-4 4z"/></svg><span>שאל את ה-AI</span></button>
   </nav>
@@ -125,6 +126,8 @@
         <ul class="list" id="docList"></ul>
       </article>
     </section>
+
+    <section id="tab-review" class="report hidden" role="tabpanel" aria-labelledby="tabbtn-review"></section>
 
     <section id="tab-report" class="report hidden" role="tabpanel" aria-labelledby="tabbtn-report"></section>
 
