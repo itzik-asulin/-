@@ -1,5 +1,5 @@
 'use strict';
-/* התאמת בנק וחשבוניות — הממשק בדפדפן.
+/* Ka-Ching · התאמת בנק וחשבוניות — הממשק בדפדפן.
    הדף מדבר רק עם השרת שלך (/api). השרת הוא שפונה ל-Gmail ול-Claude. */
 
 /* ============================== כלים ============================== */
@@ -172,7 +172,8 @@ function showLogin(missing = []){
   const setup = missing.filter(k => k !== 'ANTHROPIC_API_KEY' && k !== 'DATABASE_URL');
   $('#loginRoot').innerHTML = `<div class="login" role="dialog" aria-modal="true" aria-label="כניסה"><div class="login-card">
     <span class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h9M4 17h6"/><path d="m14 17 2.5 2.5L21 15"/></svg></span>
-    <h1>התאמת בנק וחשבוניות</h1>
+    <h1>Ka-Ching</h1>
+    <p style="font-weight:500;color:var(--ink-2)">התאמת בנק וחשבוניות</p>
     <p>כניסה עם חשבון Google שלך. אותה כניסה נותנת לאתר הרשאת קריאה בלבד ל-Gmail, כדי למצוא חשבוניות וקבלות.</p>
     ${errMsg ? `<div class="note err" style="margin:0">${esc(errMsg)}</div>` : ''}
     ${setup.length ? `<div class="note err" style="margin:0">ההקמה לא הושלמה. חסרים בשרת משתני הסביבה:<ul>${setup.map(k => `<li><code>${esc(k)}</code></li>`).join('')}</ul></div>` : `<a class="btn primary" href="/auth/login">התחבר עם Google</a>`}
@@ -866,7 +867,7 @@ async function runMatch(){
     if (ctl.signal.aborted) throw { code: 'cancelled' };
     const before = S.links.length;
     localMatch(); jobs.match.done = 1; jobs.match.label = 'Claude מתאים את מה שנשאר פתוח'; renderJobs();
-    if (CAP.ai){ const n = await aiMatchPass(ctl); msg = n ? `Claude מצא עוד ${n} התאמות.` : 'Claude לא מצא התאמות נוספות.'; }
+    if (CAP.ai){ const n = await aiMatchPass(ctl); msg = n ? `Ka-Ching! נמצאו עוד ${n} התאמות.` : 'לא נמצאו התאמות נוספות.'; }
     else msg = `התאמה בסיסית בוצעה (${Math.max(0, S.links.length - before)} חדשות). Claude לא מוגדר בשרת, לכן התאמות מורכבות לא נבדקו.`;
   } catch (e){ msg = errText(e); }
   delete jobs.match;
@@ -1148,7 +1149,7 @@ function exportXlsx(){
   const head = ['תאריך','בית עסק','תיאור בבנק','חשבון','סכום ₪','סכום מקורי','מצב','מסמכים / הערה'];
   const wb = XLSX.utils.book_new();
   const summary = [
-    ['דוח התאמת בנק וחשבוניות'], [`תקופה: ${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)}`], [],
+    ['Ka-Ching · דוח התאמת בנק וחשבוניות'], [`תקופה: ${fmtDateLong(s.p.from)} עד ${fmtDateLong(s.p.to)}`], [],
     ['קטגוריה','מספר תנועות','סכום ₪'],
     ['חסר מסמך', s.missing.length, +s.sum(s.missing).toFixed(2)],
     ['חסרה חשבונית מס', s.noInv.length, +s.sum(s.noInv).toFixed(2)],
