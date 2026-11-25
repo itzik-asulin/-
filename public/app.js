@@ -113,9 +113,9 @@ function errText(e){
   switch (e?.code){
     case 'not_logged_in': return 'צריך להתחבר מחדש.';
     case 'offline': return 'אין חיבור לשרת. בדוק את החיבור לאינטרנט, או שהשרת מתעורר (עד דקה) ונסה שוב.';
-    case 'no_ai': return 'לא הוגדר מפתח Claude API בשרת (ANTHROPIC_API_KEY).';
-    case 'ai_key': return 'מפתח ה-Claude API שהוגדר בשרת לא תקין. צור מפתח חדש ב-console.anthropic.com.';
-    case 'ai_credit': return 'נגמרה היתרה בחשבון ה-Claude API. הוסף קרדיט ב-console.anthropic.com.';
+    case 'no_ai': return 'קריאת החשבוניות עם AI לא זמינה כרגע. (למנהל: חסר בשרת ANTHROPIC_API_KEY)';
+    case 'ai_key': return 'קריאת החשבוניות עם AI לא זמינה כרגע. (למנהל: המפתח ב-console.anthropic.com לא תקין)';
+    case 'ai_credit': return 'קריאת החשבוניות עם AI נעצרה כי נגמרה היתרה. (למנהל: להוסיף קרדיט ב-console.anthropic.com)';
     case 'rate_limited': return 'יותר מדי בקשות ל-Claude בבת אחת. המתן דקה ונסה שוב. המשך יתחיל מאותה נקודה.';
     case 'needs_reauth': return 'צריך לחבר מחדש את Gmail. לחץ "הגדרות" ואז "התחבר מחדש ל-Google".';
     case 'no_gmail_scope': return 'לא ניתנה לאתר הרשאה לקרוא מ-Gmail. לחץ "הגדרות", "התחבר מחדש ל-Google", וסמן את התיבה של Gmail.';
@@ -171,6 +171,7 @@ function showLogin(missing = []){
   const errMsg = { not_allowed: 'החשבון הזה לא ברשימת המורשים. הוסף אותו למשתנה ALLOWED_EMAILS בשרת.', unverified: 'כתובת המייל בחשבון Google לא מאומתת.', access_denied: 'הכניסה בוטלה.', state: 'הכניסה פגה. נסה שוב.' }[err] || (err ? 'הכניסה נכשלה. נסה שוב.' : '');
   const setup = missing.filter(k => k !== 'ANTHROPIC_API_KEY' && k !== 'DATABASE_URL');
   $('#loginRoot').innerHTML = `<div class="login" role="dialog" aria-modal="true" aria-label="כניסה"><div class="login-card">
+    <span class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h9M4 17h6"/><path d="m14 17 2.5 2.5L21 15"/></svg></span>
     <h1>התאמת בנק וחשבוניות</h1>
     <p>כניסה עם חשבון Google שלך. אותה כניסה נותנת לאתר הרשאת קריאה בלבד ל-Gmail, כדי למצוא חשבוניות וקבלות.</p>
     ${errMsg ? `<div class="note err" style="margin:0">${esc(errMsg)}</div>` : ''}
@@ -884,8 +885,11 @@ function rederive(){
   for (const l of S.links){ const t = txById.get(l.t), d = docById.get(l.d); t._docs.push(d); d._tx.push(t); }
   for (const t of S.tx) t._status = txStatus(t);
 }
+const MIN_AMOUNT = 50; // הוצאה קטנה מהסכום הזה (בשקלים) לא נספרת ולא דורשת מסמך, אלא אם סימנת אחרת ידנית
+const isSmall = t => t.dir === 'out' && t.amount < MIN_AMOUNT;
+const reasonOf = t => isSmall(t) && !S.overrides[t.id] ? `הוצאה מתחת ל-${MIN_AMOUNT} ₪, לא נספרת` : (t.needReason || '');
 function txStatus(t){
-    if (t.dir === 'out' && t.amount < 50) return 'not_needed'; 
+  if (isSmall(t) && !S.overrides[t.id]) return 'not_needed';
   const docs = t._docs || [];
   if (docs.length){
     if (docs.some(d => d.docType === 'credit_note')) return 'complete';
@@ -933,7 +937,7 @@ function renderSummary(){
     { cls: 'info', k: 'מסמכים ללא תנועה', v: s.orphans.length, sub: 'חשבוניות שלא מצאתי להן חיוב', go: 'orphans' },
     { cls: 'ok', k: 'מגובות במסמך', v: `${pct}%`, sub: `${s.covered.length} מתוך ${s.need.length} תנועות שדורשות מסמך`, meter: pct, go: 'complete' }
   ];
-  $('#summary').innerHTML = tiles.map(t => `<button class="tile ${t.cls}" data-act="goto" data-go="${t.go}" type="button"><div class="k">${t.k}</div><div class="v">${t.v}</div><div class="s">${esc(t.sub)}</div>${t.meter != null ? `<div class="meter"><i style="width:${t.meter}%"></i></div>` : ''}</button>`).join('');
+  $('#summary').innerHTML = tiles.map(t => `<button class="tile ${t.cls}${t.v === 0 ? ' zero' : ''}" data-act="goto" data-go="${t.go}" type="button"><div class="k">${t.k}</div><div class="v">${t.v}</div><div class="s">${esc(t.sub)}</div>${t.meter != null ? `<div class="meter"><i style="width:${t.meter}%"></i></div>` : ''}</button>`).join('');
   const cnt = s.missing.length + s.noInv.length;
   $('#reportCnt').textContent = cnt ? cnt : '';
   $('#reportCnt').classList.toggle('hidden', !cnt);
@@ -964,12 +968,12 @@ function renderBank(){
   if (q) list = list.filter(t => (t.desc + ' ' + t.merchant + ' ' + t.amount).toLowerCase().includes(q));
   list.sort((a, b) => b.date.localeCompare(a.date));
   $('#bankMeta').textContent = `${list.length} תנועות`;
-  if (!list.length){ $('#txList').innerHTML = `<li class="empty">${S.tx.length ? 'אין תנועות שמתאימות לסינון או לתקופה.' : 'עוד לא הועלו תנועות. הורד מאתר הבנק או חברת האשראי קובץ אקסל של התנועות וגרור אותו לכאן.'}</li>`; return; }
+  if (!list.length){ $('#txList').innerHTML = `<li class="empty">${S.tx.length ? 'אין תנועות בסינון או בתקופה הזו.' : 'עוד אין תנועות. העלה קובץ מהבנק או מחברת האשראי.'}</li>`; return; }
   const shown = list.slice(0, UI.txLimit);
   $('#txList').innerHTML = shown.map(t => {
     const src = srcOf(t);
     const docs = t._docs.map(d => DOC_TYPES[d.docType]).join(' + ');
-    const sub = [t.merchant && t.merchant !== t.desc ? esc(t.desc) : '', src ? esc(src.label) : '', t.origAmount ? `<span class="num">${esc(fmtMoney(t.origAmount, t.origCurrency))}</span>` : '', docs ? `מסמך: ${esc(docs)}` : (t.needReason && t._status !== 'missing' ? esc(t.needReason) : '')].filter(Boolean).join(' · ');
+    const sub = [t.merchant && t.merchant !== t.desc ? esc(t.desc) : '', src ? esc(src.label) : '', t.origAmount ? `<span class="num">${esc(fmtMoney(t.origAmount, t.origCurrency))}</span>` : '', docs ? `מסמך: ${esc(docs)}` : (reasonOf(t) && t._status !== 'missing' ? esc(reasonOf(t)) : '')].filter(Boolean).join(' · ');
     return `<li class="row st-${t._status}"><span class="d">${fmtDate(t.date)}</span><span class="n">${esc(t.merchant || t.desc)}</span><span class="a num ${t.dir === 'in' ? 'in' : ''}">${esc(money(t))}</span><span class="sub">${sub}</span><span class="x">${chip(t._status)}<button class="iconbtn" data-act="tx" data-id="${t.id}" aria-label="פעולות על התנועה" type="button">⋯</button></span></li>`;
   }).join('') + (list.length > shown.length ? `<li><button class="more" data-act="more" data-what="tx" type="button">הצג עוד ${Math.min(150, list.length - shown.length)} מתוך ${list.length - shown.length} שנותרו</button></li>` : '');
 }
@@ -982,7 +986,7 @@ function renderMail(){
   list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const docsN = list.filter(e => e.status === 'doc').length;
   $('#mailMeta').textContent = all ? `${all} מיילים · ${docsN} עם מסמך` : '';
-  if (!list.length){ $('#mailList').innerHTML = `<li class="empty">${all ? 'אין מיילים בסינון הזה.' : 'עוד לא נסרק המייל. לחץ "סרוק חשבוניות ב-Gmail" ו-Claude יקרא כל מייל עם חשבונית, כולל קבצי PDF מצורפים.'}</li>`; return; }
+  if (!list.length){ $('#mailList').innerHTML = `<li class="empty">${all ? 'אין מיילים בסינון הזה.' : 'המייל עוד לא נסרק.'}</li>`; return; }
   const shown = list.slice(0, UI.mailLimit);
   $('#mailList').innerHTML = shown.map(e => {
     const [lbl, cls] = MAIL_ST[e.status] || ['', 'muted'];
@@ -1000,7 +1004,7 @@ function renderDocs(){
   if (q) list = list.filter(d => [d.vendor, d.number, d.amount, ...(d.aliases || [])].join(' ').toLowerCase().includes(q));
   list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   $('#docsMeta').textContent = `${list.length} מסמכים`;
-  if (!list.length){ $('#docList').innerHTML = `<li class="empty">${S.docs.length ? 'אין מסמכים בסינון הזה.' : 'כאן יופיעו החשבוניות והקבלות ש-Claude יחלץ מהמייל או מקבצים שתעלה.'}</li>`; return; }
+  if (!list.length){ $('#docList').innerHTML = `<li class="empty">${S.docs.length ? 'אין מסמכים בסינון הזה.' : 'עוד אין מסמכים.'}</li>`; return; }
   const shown = list.slice(0, UI.docLimit);
   $('#docList').innerHTML = shown.map(d => {
     const matched = d._tx.length;
@@ -1037,21 +1041,32 @@ function renderReport(){
     sec('r-check', 'לבדיקה שלך', `${checkList.length} תנועות ש-Claude לא בטוח לגביהן: העברות לאנשים פרטיים, צ׳קים, קניות שאולי פרטיות`, checkList.length ? `<div class="tbl-wrap"><table><thead><tr><th>תאריך</th><th>בית עסק</th><th>תיאור בבנק</th><th>חשבון</th><th style="text-align:end">סכום</th><th>למה</th><th></th></tr></thead><tbody>${checkList.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || '—')}</td><td>${esc(t.desc)}</td><td>${esc(srcOf(t)?.label || '')}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(t.needReason || 'טרם סווג')}</td><td style="white-space:nowrap"><button class="btn small" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">צריך מסמך</button> <button class="btn small ghost" data-act="set-need" data-need="no" data-id="${t.id}" type="button">לא נדרש</button> <button class="btn small ghost" data-act="link" data-id="${t.id}" type="button">קשר</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">אין תנועות לבדיקה.</div>'),
     sec('r-orphans', 'מסמכים שלא נמצא להם חיוב', `${s.orphans.length} מסמכים בתקופה`, orphansBody),
     sec('r-norec', 'יש חשבונית מס, אין קבלה', `${s.noRec.length} תנועות. בדרך כלל מספיק כשהתשלום בכרטיס אשראי, אבל כדאי לדעת`, s.noRec.length ? txTable(s.noRec) : '<div class="empty">אין.</div>'),
-    sec('r-complete', 'מותאם ומלא', `${s.complete.length} תנועות עם מסמכים מלאים · ${s.notNeeded.length} תנועות שלא דורשות מסמך`, `<details style="padding:10px 18px"><summary class="muted" style="cursor:pointer">הצג את התנועות המותאמות</summary>${txTable(s.complete, { noNeed: false })}</details><details style="padding:10px 18px;border-top:1px solid var(--line)"><summary class="muted" style="cursor:pointer">הצג תנועות שלא דורשות מסמך ולמה</summary><div class="tbl-wrap"><table><tbody>${s.notNeeded.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || t.desc)}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(t.needReason)}</td><td><button class="btn small ghost" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">דווקא צריך מסמך</button></td></tr>`).join('')}</tbody></table></div></details>`)
+    sec('r-complete', 'מותאם ומלא', `${s.complete.length} תנועות עם מסמכים מלאים · ${s.notNeeded.length} תנועות שלא דורשות מסמך`, `<details style="padding:10px 18px"><summary class="muted" style="cursor:pointer">הצג את התנועות המותאמות</summary>${txTable(s.complete, { noNeed: false })}</details><details style="padding:10px 18px;border-top:1px solid var(--line)"><summary class="muted" style="cursor:pointer">הצג תנועות שלא דורשות מסמך ולמה</summary><div class="tbl-wrap"><table><tbody>${s.notNeeded.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || t.desc)}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(reasonOf(t))}</td><td><button class="btn small ghost" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">דווקא צריך מסמך</button></td></tr>`).join('')}</tbody></table></div></details>`)
   ].join('');
 }
+/* מצב החיבורים: נקודה ליד עיגול המשתמש. הפירוט המלא בחלון ההגדרות, ובתחתית הדף מופיעות רק תקלות */
+function capsItems(){
+  if (!CAP.me) return [];
+  return [
+    { on: true, label: `מחובר כ-${CAP.me.email}` },
+    S.demo ? { on: null, label: 'נתוני דוגמה, לא נשמרים' } : { on: CAP.saveOk !== false, label: 'הנתונים נשמרים בשרת שלך', off: 'השמירה האחרונה נכשלה' },
+    { on: CAP.gmail === 'ok', label: 'Gmail מחובר (קריאה בלבד)', off: 'Gmail לא מחובר. "הגדרות" ← "התחבר מחדש ל-Google"' },
+    { on: CAP.ai, label: `Claude זמין · מצב ${S.settings.aiMode === 'precise' ? 'מדויק' : 'מהיר'}`, off: 'קריאת חשבוניות עם AI לא זמינה' },
+    { on: !!window.XLSX, label: 'קורא האקסל נטען', off: 'קורא האקסל לא נטען. רענן את הדף' }
+  ];
+}
+const capLine = c => `<span><span class="dot ${c.on === null ? '' : c.on ? 'on' : 'off'}"></span>${esc(c.on === false ? c.off : c.label)}</span>`;
 function renderCaps(){
-  const item = (on, label, offLabel) => `<span><span class="dot ${on === null ? '' : on ? 'on' : 'off'}"></span>${on === false ? offLabel : label}</span>`;
-  if (!CAP.ready){ $('#caps').innerHTML = '<span class="muted">מתחבר לשרת…</span>'; return; }
-  if (!CAP.me){ $('#caps').innerHTML = item(false, '', 'לא מחובר'); return; }
-  const saveState = S.demo ? item(null, 'נתוני דוגמה, לא נשמרים', '') : item(CAP.saveOk !== false, 'הנתונים נשמרים בשרת שלך', 'השמירה האחרונה נכשלה');
-  $('#caps').innerHTML = [
-    item(true, `מחובר כ-${esc(CAP.me.email)}`, ''),
-    saveState,
-    item(CAP.gmail === 'ok', 'Gmail מחובר (קריאה בלבד)', 'Gmail לא מחובר. "הגדרות" ← "התחבר מחדש ל-Google"'),
-    item(CAP.ai, `Claude זמין · מצב ${S.settings.aiMode === 'precise' ? 'מדויק' : 'מהיר'}`, 'Claude לא מוגדר בשרת'),
-    item(!!window.XLSX, 'קורא האקסל נטען', 'קורא האקסל לא נטען')
-  ].join('');
+  const letter = $('#accLetter'), dot = $('#accDot'), btn = $('#btnAccount');
+  if (!CAP.ready){ $('#caps').innerHTML = ''; dot.className = 'adot'; return; }
+  if (!CAP.me){ $('#caps').innerHTML = ''; letter.textContent = '?'; dot.className = 'adot off'; btn.setAttribute('aria-label', 'לא מחובר'); return; }
+  const items = capsItems();
+  const bad = items.filter(c => c.on === false);
+  letter.textContent = (CAP.me.email || '?').charAt(0).toUpperCase();
+  dot.className = 'adot ' + (bad.length ? 'off' : 'on');
+  btn.setAttribute('aria-label', `החשבון שלי: ${CAP.me.email}${bad.length ? ' · יש תקלה' : ''}`);
+  btn.title = bad.length ? bad.map(c => c.off).join(' · ') : CAP.me.email;
+  $('#caps').innerHTML = bad.map(capLine).join('');
 }
 
 /* ============================== חלונות ============================== */
@@ -1067,7 +1082,7 @@ function openTx(id){
   modal(t.merchant || t.desc, `
     <div class="grid2"><div><div class="muted" style="font-size:12.5px">תאריך</div><div class="num">${fmtDateLong(t.date)}${t.chargeDate ? ` · חיוב ${fmtDateLong(t.chargeDate)}` : ''}</div></div><div><div class="muted" style="font-size:12.5px">סכום</div><div class="num">${esc(money(t))}${t.origAmount ? ` (${esc(fmtMoney(t.origAmount, t.origCurrency))})` : ''}</div></div>
     <div><div class="muted" style="font-size:12.5px">תיאור בבנק</div><div>${esc(t.desc)}</div></div><div><div class="muted" style="font-size:12.5px">חשבון</div><div>${esc(src?.label || '')}</div></div></div>
-    <div>${chip(t._status)} <span class="muted">${esc(t.needReason || '')}</span></div>
+    <div>${chip(t._status)} <span class="muted">${esc(reasonOf(t))}</span></div>
     <div><div class="muted" style="font-size:12.5px;margin-bottom:6px">מסמכים מקושרים</div>${docs || '<div class="muted">אין</div>'}</div>`,
     `<button class="btn primary" data-act="link" data-id="${t.id}" type="button">קשר מסמך</button>
      <button class="btn" data-act="set-need" data-need="no" data-id="${t.id}" type="button">לא דורש מסמך</button>
@@ -1108,7 +1123,7 @@ function openDoc(id){
 function openSettings(){
   const s = S.settings;
   modal('הגדרות', `
-    ${CAP.me ? `<div class="account">מחובר כ-<b>${esc(CAP.me.email)}</b> · Gmail: ${CAP.gmail === 'ok' ? 'מחובר' : 'לא מחובר'}</div>
+    ${CAP.me ? `<div class="status-list">${capsItems().map(capLine).join('')}</div>
     <div class="actions"><a class="btn small" href="/auth/login?consent=1&hint=${encodeURIComponent(CAP.me.email)}">התחבר מחדש ל-Google</a><button class="btn small" data-act="logout" type="button">התנתק</button></div>` : ''}
     <div class="field"><label for="setBiz">שמות העסק והבעלים, מופרדים בפסיק. כך Claude מזהה חשבוניות שאתה הוצאת ללקוחות.</label><input type="text" id="setBiz" value="${esc(s.bizNames)}" placeholder="לדוגמה: שטיינברג שמאות מקרקעין, שלום שטיינברג"></div>
     <div class="field"><label for="setMode">מצב AI</label><select id="setMode"><option value="fast" ${s.aiMode !== 'precise' ? 'selected' : ''}>מהיר וזול: מתאים לרוב החשבוניות</option><option value="precise" ${s.aiMode === 'precise' ? 'selected' : ''}>מדויק: מודל חזק יותר. איטי ויקר יותר</option></select></div>
@@ -1195,6 +1210,8 @@ function bindDrop(zoneSel, inputSel, handler){
 }
 bindDrop('#dropBank', '#fileBank', importBankFiles);
 bindDrop('#dropDocs', '#fileDocs', importDocFiles);
+$('#fileCamera').addEventListener('change', e => { const inp = e.target; if (inp.files.length) importDocFiles([...inp.files]); inp.value = ''; });
+$('#btnAccount').addEventListener('click', openSettings);
 $('#btnScan').addEventListener('click', () => scanGmail(false));
 $('#btnRescan').addEventListener('click', () => scanGmail(true));
 $('#btnMatch').addEventListener('click', runMatch);
