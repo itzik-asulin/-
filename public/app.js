@@ -142,7 +142,9 @@ function errText(e){
     case 'no_drive_scope': return 'עוד לא אישרת ל-Google שהאתר ישמור קבצים ב-Drive. סמן בהגדרות את "שמירה ב-Google Drive" ולחץ "שמור".';
     case 'no_attachment': return 'הקובץ כבר לא נמצא במייל.';
     case 'drive_api_disabled': return 'השמירה ב-Drive עוד לא הופעלה ב-Google Cloud. (למנהל: בפרויקט ב-console.cloud.google.com צריך להפעיל את Google Drive API)';
-    default: return 'תקלה זמנית. נסה שוב.';
+    case 'read_failed': return 'הדפדפן לא הצליח לקרוא את הקובץ מהמחשב. אם גררת אותו מתוך קובץ ZIP פתוח, גרור את קובץ ה-ZIP עצמו, או חלץ אותו קודם (קליק ימני ← "חלץ הכל").';
+    case 'ai_error': return `ה-AI החזיר שגיאה. נסה שוב בעוד רגע.${e.message ? ` (פרטים: ${String(e.message).slice(0, 140)})` : ''}`;
+    default: return `תקלה זמנית. נסה שוב.${e?.code || e?.status ? ` (קוד: ${[e.code, e.status].filter(Boolean).join(' ')}${e.message ? ', ' + String(e.message).slice(0, 120) : ''})` : ''}`;
   }
 }
 
@@ -467,33 +469,94 @@ async function pool(items, n, ctl, fn){
 }
 
 /* ============================== העלאת מסמכים ידנית ============================== */
+// קובץ ZIP (למשל גיבוי ממורנינג) נפתח כאן בדפדפן, ורק קבצי ה-PDF והתמונות שבתוכו נקראים
+const DOC_EXT = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
+async function unzipDocs(file){
+  if (typeof DecompressionStream === 'undefined') throw { code: 'zip_unsupported' };
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  if (eocd < 0) throw { code: 'bad_zip' };
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const out = [];
+  for (let n = 0; n < count; n++){
+    if (p + 46 > buf.length || dv.getUint32(p, true) !== 0x02014b50) throw { code: 'bad_zip' };
+    const flags = dv.getUint16(p + 8, true), method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), commentLen = dv.getUint16(p + 32, true), local = dv.getUint32(p + 42, true);
+    const name = new TextDecoder('utf-8').decode(buf.subarray(p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + extraLen + commentLen;
+    const base = name.split(/[\\/]/).pop(), type = DOC_EXT[(base.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()];
+    if (!base || !type || base.startsWith('._') || (flags & 1) || csize === 0xFFFFFFFF) continue; // תיקייה, סוג אחר, קובץ מוצפן או ZIP64
+    const start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+    const data = buf.subarray(start, start + csize);
+    let bytes;
+    if (method === 0) bytes = data;
+    else if (method === 8) bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else continue;
+    out.push(new File([bytes], base, { type, lastModified: file.lastModified }));
+  }
+  return out;
+}
+const isZip = f => /\.zip$/i.test(f.name) || /zip/i.test(f.type);
 async function importDocFiles(files){
   if (jobs.doc) return;
   setNote('doc', null);
   if (!CAP.ai){ setNote('doc', 'err', errText({ code: 'no_ai' })); return; }
+  // פותחים קבצי ZIP
+  const list = [], zipErr = [];
+  for (const f of files){
+    if (!isZip(f)){ list.push(f); continue; }
+    try { const inner = await unzipDocs(f); list.push(...inner); if (!inner.length) zipErr.push(`${f.name}: אין בו קבצי PDF או תמונות`); }
+    catch (e){ zipErr.push(`${f.name}: ${e.code === 'zip_unsupported' ? 'הדפדפן לא יודע לפתוח ZIP. חלץ אותו (קליק ימני ← "חלץ הכל") וגרור את הקבצים' : 'לא הצלחתי לפתוח את קובץ ה-ZIP'}`); }
+  }
+  if (!list.length){ setNote('doc', 'err', zipErr.join(' · ') || 'לא נמצאו קבצים לקריאה.'); return; }
   clearDemo();
   const ctl = new AbortController();
-  jobs.doc = { label: 'Claude קורא את המסמכים', done: 0, total: files.length, ctl }; renderJobs();
+  jobs.doc = { label: 'Claude קורא את המסמכים', done: 0, total: list.length, ctl }; renderJobs();
   let added = 0, fatal = null;
-  for (const f of files){
+  const fails = [], notDoc = [];
+  for (const f of list){
     if (ctl.signal.aborted) break;
     try {
       if (f.size > 25 * 1024 * 1024) throw { code: 'too_big' };
-      const data = await fileToB64(f);
-      const r = await api('/extract-file', { method: 'POST', signal: ctl.signal, body: { name: f.name, mime: f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : ''), data, bizNames: S.settings.bizNames, precise: S.settings.aiMode === 'precise', drive: driveOn() } });
+      if (!f.size) throw { code: 'read_failed' };
+      let data;
+      try { data = await fileToB64(f); } catch { throw { code: 'read_failed' }; }
+      if (!data) throw { code: 'read_failed' };
+      const body = { name: f.name, mime: f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : ''), data, bizNames: S.settings.bizNames, precise: S.settings.aiMode === 'precise', drive: driveOn() };
+      let r;
+      try { r = await api('/extract-file', { method: 'POST', signal: ctl.signal, body }); }
+      catch (e){
+        // תקלה זמנית בשרת (למשל כשהוא מתעורר): מנסים שוב פעם אחת
+        if (e?.code === 'offline' || e?.code === 'server_error' || e?.status >= 500){ await new Promise(res => setTimeout(res, 4000)); r = await api('/extract-file', { method: 'POST', signal: ctl.signal, body }); }
+        else throw e;
+      }
       const docs = addDocs(r.result, { origin: 'upload', fileName: f.name, key: f.name + f.size + f.lastModified, file: r.file });
       if (r.driveError) UI.driveErr = r.driveError;
       added += docs.length;
-      if (!docs.length) toast(`${f.name}: לא זוהתה בקובץ חשבונית או קבלה`);
+      if (!docs.length) notDoc.push(f.name);
     } catch (e){
       if (isFatal(e)){ fatal = e; break; }
-      toast(`${f.name}: ${e?.code === 'too_big' ? 'הקובץ גדול מ-25MB' : e?.code === 'bad_file' ? 'אפשר להעלות רק PDF או תמונה' : errText(e)}`);
+      fails.push({ name: f.name, msg: e?.code === 'too_big' ? 'הקובץ גדול מ-25MB' : e?.code === 'bad_file' ? 'אפשר להעלות רק PDF או תמונה' : errText(e) });
     }
     jobs.doc.done++; renderJobs();
+    if (added && jobs.doc.done % 5 === 0){ markDirty('docs'); renderReview(); }
   }
   delete jobs.doc;
   markDirty('docs'); localMatch(); rederive(); renderAll();
-  setNote('doc', fatal ? 'err' : 'okn', fatal ? errText(fatal) : added ? `נוספו ${added} מסמכים. הם ממתינים לאישור שלך.` : 'לא נוספו מסמכים.');
+  // סיכום אחד במקום הודעה על כל קובץ
+  const parts = [];
+  if (fatal) parts.push(errText(fatal));
+  if (added) parts.push(`נוספו ${added} מסמכים. הם ממתינים לאישור שלך.`);
+  if (fails.length){
+    const byMsg = new Map(); for (const x of fails) byMsg.set(x.msg, (byMsg.get(x.msg) || 0) + 1);
+    parts.push(`${fails.length === 1 ? `הקובץ ${fails[0].name} לא נקרא` : `${fails.length} קבצים לא נקראו`}: ${[...byMsg.entries()].map(([m, n]) => fails.length > 1 && byMsg.size > 1 ? `${m} (${n})` : m).join(' · ')}`);
+  }
+  if (notDoc.length) parts.push(`${notDoc.length === 1 ? `ב-${notDoc[0]}` : `ב-${notDoc.length} קבצים`} לא זוהתה חשבונית או קבלה.`);
+  if (zipErr.length) parts.push(zipErr.join(' · '));
+  setNote('doc', fatal || (fails.length && !added) ? 'err' : 'okn', parts.join(' ') || 'לא נוספו מסמכים.');
   if (added && !fatal) switchTab('review');
   driveWarn();
 }
