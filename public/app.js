@@ -82,7 +82,7 @@ const S = {
   sources: [], tx: [], emails: [], docs: [], links: [], rejects: [], overrides: {}, threads: {},
   demo: false
 };
-const UI = { txf: 'all', mf: 'all', df: 'all', txLimit: 150, mailLimit: 150, docLimit: 150, tab: 'board', notes: { bank: null, mail: null, doc: null }, rvDraft: {} };
+const UI = { txf: 'all', mf: 'all', df: 'all', txLimit: 150, mailLimit: 150, docLimit: 150, flowLimit: 200, tab: 'board', notes: { bank: null, mail: null, doc: null }, rvDraft: {} };
 const jobs = {};
 const CAP = { ready: false, me: null, ai: false, gmail: 'unknown', saveOk: null, report: null };
 const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -257,6 +257,8 @@ function loadDemo(){
     tx('c10','S2','2026-11-11','יוחננוף מודיעין',410.25,'out','יוחננוף','maybe','קנייה בסופר. ייתכן שפרטית'),
     tx('c11','S2','2026-11-14','סופר-פארם הדר',64.90,'out','סופר-פארם','maybe','ייתכן שפרטית')
   ];
+  const CAT = { 'חברת החשמל': 'חשמל ומים', 'משה כהן': 'העברות', 'משיכת מזומן': 'מזומן', 'ביטוח לאומי': 'מיסים ואגרות', 'רו"ח אבי מזרחי': 'שירותים מקצועיים', 'עמלת בנק': 'עמלות בנק', 'פז': 'דלק', 'Google Workspace': 'תוכנה ומנויים', 'בזק בינלאומי': 'תקשורת', 'שופרסל': 'כיבוד', 'Adobe': 'תוכנה ומנויים', 'סלקום': 'תקשורת', 'אופיס דיפו': 'ציוד משרדי', 'Zoom': 'תוכנה ומנויים', 'יוחננוף': 'כיבוד', 'סופר-פארם': 'אחר', 'כאל': 'כרטיס אשראי', 'יעל לוי': 'הכנסה מלקוח' };
+  for (const t of S.tx) t.category = CAT[t.merchant] || '';
   const doc = (id, date, vendor, docType, amount, extra = {}) => ({ id, origin: 'gmail', emailId: 'e' + id, viewUrl: null, fileName: 'invoice.pdf', docType, vendor, customer: '', aliases: [], taxId: '', date, amount, currency: 'ILS', vat: +(amount - amount/1.18).toFixed(2), number: String(1000 + parseInt(id.slice(1)) * 37), dir: 'expense', exempt: false, foreign: false, linkOnly: false, desc: '', ...extra });
   S.docs = [
     doc('d1','2026-09-28','חברת החשמל לישראל בע"מ','tax_invoice_receipt',412.30),
@@ -953,7 +955,7 @@ function stats(){
 /* ============================== תצוגה ============================== */
 function chip(st){ const m = ST[st]; return `<span class="chip ${m.cls}">${m.label}</span>`; }
 function money(t){ return `${t.dir === 'in' ? '+' : ''}${fmtMoney(t.amount)}`; }
-function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderCaps(); }
+function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderFlows(); renderCaps(); }
 function renderBanner(){
   const el = $('#demoBanner');
   if (!S.demo){ el.innerHTML = ''; return; }
@@ -1148,6 +1150,93 @@ function renderReport(){
     sec('r-complete', 'מותאם ומלא', `${s.complete.length} תנועות עם מסמכים מלאים · ${s.notNeeded.length} תנועות שלא דורשות מסמך`, `<details style="padding:10px 18px"><summary class="muted" style="cursor:pointer">הצג את התנועות המותאמות</summary>${txTable(s.complete, { noNeed: false })}</details><details style="padding:10px 18px;border-top:1px solid var(--line)"><summary class="muted" style="cursor:pointer">הצג תנועות שלא דורשות מסמך ולמה</summary><div class="tbl-wrap"><table><tbody>${s.notNeeded.map(t => `<tr><td class="dt">${fmtDateLong(t.date)}</td><td>${esc(t.merchant || t.desc)}</td><td class="amt">${esc(money(t))}</td><td class="muted">${esc(reasonOf(t))}</td><td><button class="btn small ghost" data-act="set-need" data-need="yes" data-id="${t.id}" type="button">דווקא צריך מסמך</button></td></tr>`).join('')}</tbody></table></div></details>`)
   ].join('');
 }
+/* ============================== הכנסות והוצאות ============================== */
+// הכנסות: כל הזיכויים לחשבון הבנק. הוצאות: כל החיובים בבנק ובאשראי.
+// חיוב מרוכז של כרטיס אשראי בבנק לא נספר כשדפי האשראי הועלו, כי כל קנייה בכרטיס כבר נספרה משם.
+const kindOf = t => srcOf(t)?.kind === 'credit' ? 'credit' : 'bank';
+const CARD_BILL = /ישראכרט|isracard|לאומי ?קארד|leumi ?card|אמריקן ?אקספרס|american ?express|\bamex\b|דיינרס|diners|ויזה ?כאל|כאל[\s-]|^כאל$|\bcal\b|מקס ?איט|max ?it|חיוב ?כרטיס|כרטיס ?אשראי/i;
+const isCardBill = t => kindOf(t) === 'bank' && t.dir === 'out' && (CARD_BILL.test(`${t.desc} ${t.merchant || ''}`) || /כרטיס[\s-]?ה?אשראי/.test(t.needReason || ''));
+const sumAmt = list => list.reduce((a, t) => a + t.amount, 0);
+function flows(){
+  const p = period();
+  const tx = S.tx.filter(t => inPeriod(t.date, p));
+  const credit = tx.filter(t => kindOf(t) === 'credit');
+  const cardBills = tx.filter(isCardBill);
+  const skip = new Set(credit.length ? cardBills : []);
+  return {
+    p, hasCredit: credit.length > 0, cardBills,
+    income: tx.filter(t => t.dir === 'in' && kindOf(t) === 'bank'),
+    refunds: credit.filter(t => t.dir === 'in'),
+    expense: tx.filter(t => t.dir === 'out' && !skip.has(t))
+  };
+}
+function groupSum(list, keyFn){
+  const g = new Map();
+  for (const t of list){ const k = keyFn(t) || 'ללא שם'; const r = g.get(k) || { name: k, sum: 0, n: 0 }; r.sum += t.amount; r.n++; g.set(k, r); }
+  return [...g.values()].sort((a, b) => b.sum - a.sum);
+}
+function rankBars(rows, total, limit = 8){
+  if (!rows.length) return '<div class="empty">אין נתונים.</div>';
+  const top = rows.slice(0, limit), rest = rows.slice(limit);
+  if (rest.length) top.push({ name: `אחרים (${rest.length})`, sum: rest.reduce((a, r) => a + r.sum, 0), n: rest.reduce((a, r) => a + r.n, 0) });
+  const max = Math.max(...top.map(r => r.sum), 0.01);
+  return `<ul class="bars">${top.map(r => `<li title="${esc(r.name)}: ${esc(fmtMoney(r.sum))} · ${r.n === 1 ? 'תנועה אחת' : r.n + ' תנועות'}"><span class="bn">${esc(r.name)}</span><span class="bt"><i style="width:${Math.max(1.5, 100 * r.sum / max).toFixed(1)}%"></i></span><span class="bv num">${esc(fmtMoney(r.sum))}</span><span class="bp num">${total ? Math.round(100 * r.sum / total) : 0}%</span></li>`).join('')}</ul>`;
+}
+const nTx = (n, one, many) => n === 1 ? one : `${n} ${many}`;
+const ftile = (cls, k, list, sub) => `<div class="tile static ${cls}${list.length ? '' : ' zero'}"><div class="k">${k}</div><div class="v num">${esc(fmtMoney(sumAmt(list)))}</div><div class="s">${esc(sub ?? nTx(list.length, 'תנועה אחת', 'תנועות'))}</div></div>`;
+function flowList(title, list){
+  const sorted = [...list].sort((a, b) => b.date.localeCompare(a.date));
+  const shown = sorted.slice(0, UI.flowLimit);
+  return `<div class="card"><div class="card-h"><h2>${title}</h2><span class="meta">${nTx(list.length, 'תנועה אחת', 'תנועות')}</span></div><div class="card-b">${list.length ? txTable(shown) + (sorted.length > shown.length ? `<button class="more" data-act="more" data-what="flow" type="button">הצג עוד ${Math.min(200, sorted.length - shown.length)} מתוך ${sorted.length - shown.length} שנותרו</button>` : '') : '<div class="empty">אין תנועות בתקופה הזו.</div>'}</div></div>`;
+}
+function hero(cls, label, list, p, unit){
+  return `<div class="hero ${cls}"><div class="hero-k">${label} · ${esc(periodLabel(p))}</div><div class="hero-v num">${esc(fmtMoney(sumAmt(list)))}</div><div class="hero-s">${nTx(list.length, unit[0], unit[1])}${periodLabel(p).includes('/') ? '' : ` · ${fmtDateLong(p.from)} עד ${fmtDateLong(p.to)}`}</div></div>`;
+}
+function renderFlows(){
+  const f = flows();
+  const noData = !S.tx.length ? `<div class="note info" style="margin:0">עוד אין תנועות. העלה קובץ מהבנק ומחברות האשראי בלוח העבודה.</div>` : '';
+  // הכנסות
+  const inc = f.income, incTotal = sumAmt(inc);
+  const withRec = inc.filter(t => ['complete', 'no_receipt', 'no_invoice'].includes(t._status));
+  const noRec = inc.filter(t => t._status === 'missing');
+  const chk = inc.filter(t => t._status === 'check' || t._status === 'pending');
+  const noNeed = inc.filter(t => t._status === 'not_needed');
+  $('#tab-income').innerHTML = [
+    hero('in', 'הכנסות לחשבון הבנק', inc, f.p, ['זיכוי אחד לחשבון', 'זיכויים והעברות לחשבון']),
+    noData,
+    `<div class="ftiles">${ftile('ok', 'עם קבלה שהוצאת', withRec)}${ftile('bad', 'בלי קבלה', noRec, noRec.length ? 'כדאי להוציא קבלה ללקוח' : 'אין')}${ftile('check', 'לבדיקה שלך', chk)}${ftile('', 'לא דורש קבלה', noNeed, 'העברות בין חשבונות, החזרים וכדומה')}</div>`,
+    f.refunds.length ? `<div class="note info" style="margin:0">זיכויים בכרטיסי האשראי (${nTx(f.refunds.length, 'זיכוי אחד', 'זיכויים')}, ${esc(fmtMoney(sumAmt(f.refunds)))}) לא נכללים בהכנסות.</div>` : '',
+    inc.length ? `<div class="card"><div class="card-h"><h2>לפי משלם</h2><span class="meta">מי העביר הכי הרבה</span></div><div class="card-b">${rankBars(groupSum(inc, t => t.merchant || t.desc), incTotal)}</div></div>` : '',
+    flowList('כל ההכנסות', inc)
+  ].join('');
+  // הוצאות
+  const exp = f.expense, expTotal = sumAmt(exp);
+  const fromBank = exp.filter(t => kindOf(t) === 'bank'), fromCard = exp.filter(t => kindOf(t) === 'credit');
+  const label = list => { const ids = [...new Set(list.map(t => t.sourceId))]; return ids.length === 1 ? (S.sources.find(s => s.id === ids[0])?.label || '') : ids.length ? `${ids.length} חשבונות` : 'אין'; };
+  const withDoc = exp.filter(t => ['complete', 'no_receipt'].includes(t._status));
+  const missDoc = exp.filter(t => t._status === 'missing');
+  let billNote = '';
+  if (f.cardBills.length){
+    const list = `<details class="adv" style="margin-top:6px"><summary>הצג את החיובים</summary><div class="inner">${f.cardBills.map(t => `<div>${fmtDateLong(t.date)} · ${esc(t.desc)} · <span class="num">${esc(fmtMoney(t.amount))}</span></div>`).join('')}</div></details>`;
+    billNote = f.hasCredit
+      ? `<div class="note info" style="margin:0">${f.cardBills.length === 1 ? 'לא נספר חיוב מרוכז אחד' : `לא נספרו ${f.cardBills.length} חיובים מרוכזים`} של כרטיס אשראי מחשבון הבנק (${esc(fmtMoney(sumAmt(f.cardBills)))}), כי כל קנייה בכרטיס כבר נספרה מדף האשראי. אם לא העלית את הדף של אחד הכרטיסים, הקניות שלו חסרות כאן.${list}</div>`
+      : `<div class="note info" style="margin:0">חיובי כרטיס האשראי מהבנק (${esc(fmtMoney(sumAmt(f.cardBills)))}) נספרו כאן כסכום אחד. כדי לראות על מה הוצא הכסף, העלה בלוח העבודה את דפי הפירוט של האשראי.${list}</div>`;
+  }
+  $('#tab-expense').innerHTML = [
+    hero('out', 'הוצאות מהבנק ומהאשראי', exp, f.p, ['חיוב אחד', 'חיובים']),
+    noData,
+    `<div class="ftiles">${ftile('', 'מחשבון הבנק', fromBank, `${nTx(fromBank.length, 'חיוב אחד', 'חיובים')} · ${label(fromBank)}`)}${ftile('', 'מכרטיסי האשראי', fromCard, `${nTx(fromCard.length, 'חיוב אחד', 'חיובים')} · ${label(fromCard)}`)}${ftile('ok', 'עם חשבונית או קבלה', withDoc)}${ftile('bad', 'חסר מסמך', missDoc, missDoc.length ? `${nTx(missDoc.length, 'תנועה אחת', 'תנועות')}. הפירוט בדוח החוסרים` : 'אין')}</div>`,
+    billNote,
+    exp.length ? (() => {
+      const byVendor = `<div class="card"><div class="card-h"><h2>לפי בית עסק</h2></div><div class="card-b">${rankBars(groupSum(exp, t => t.merchant || t.desc), expTotal)}</div></div>`;
+      // לפני שה-AI סיווג את התנועות אין קטגוריות, ואז מציגים רק את הפילוח לפי בית עסק
+      if (!exp.some(t => t.category)) return byVendor;
+      return `<div class="flow-grid"><div class="card"><div class="card-h"><h2>לפי קטגוריה</h2></div><div class="card-b">${rankBars(groupSum(exp, t => t.category || 'ללא קטגוריה'), expTotal)}</div></div>${byVendor}</div>`;
+    })() : '',
+    flowList('כל ההוצאות', exp)
+  ].join('');
+}
+
 /* מצב החיבורים: נקודה ליד עיגול המשתמש. הפירוט המלא בחלון ההגדרות, ובתחתית הדף מופיעות רק תקלות */
 function capsItems(){
   if (!CAP.me) return [];
@@ -1294,11 +1383,12 @@ function reportSettingsHtml(){
   </div>`;
 }
 function syncInputs(){ const p = period(); $('#pFrom').value = p.from; $('#pTo').value = p.to; $('#gq').value = S.settings.gmailQuery || DEFAULT_QUERY; }
+const TABS = ['board','income','expense','review','report','ask'];
 function switchTab(tab){
   UI.tab = tab;
   document.body.dataset.tab = tab;
   for (const b of $$('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-  for (const t of ['board','review','report','ask']) $('#tab-' + t).classList.toggle('hidden', t !== tab);
+  for (const t of TABS) $('#tab-' + t).classList.toggle('hidden', t !== tab);
   if (location.hash !== '#' + tab) history.replaceState(null, '', location.pathname + '#' + tab);
 }
 
@@ -1480,7 +1570,7 @@ document.addEventListener('click', e => {
     case 'logout': logout(); break;
     case 'clear-demo': clearDemo(); rederive(); renderAll(); break;
     case 'stop': jobs[el.dataset.job]?.ctl?.abort(); break;
-    case 'more': if (el.dataset.what === 'tx') UI.txLimit += 150; if (el.dataset.what === 'mail') UI.mailLimit += 150; if (el.dataset.what === 'doc') UI.docLimit += 150; renderAll(); break;
+    case 'more': if (el.dataset.what === 'flow') UI.flowLimit += 200; if (el.dataset.what === 'tx') UI.txLimit += 150; if (el.dataset.what === 'mail') UI.mailLimit += 150; if (el.dataset.what === 'doc') UI.docLimit += 150; renderAll(); break;
     case 'goto': {
       const go = el.dataset.go;
       if (go === 'complete'){ switchTab('board'); UI.txf = 'complete'; $$('[data-txf]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.txf === 'complete'))); renderBank(); break; }
@@ -1609,7 +1699,7 @@ const fromHash = () => {
   // קישור מהמייל: #report:2026-10 פותח את הדוח על החודש הזה
   const m = h.match(/^report:(\d{4}-(0[1-9]|1[0-2]))$/);
   if (m){ UI.hashMonth = m[1]; setMonthPeriod(m[1]); switchTab('report'); return; }
-  if (['board','review','report','ask'].includes(h) && h !== UI.tab) switchTab(h);
+  if (TABS.includes(h) && h !== UI.tab) switchTab(h);
 };
 fromHash(); window.addEventListener('hashchange', fromHash);
 init();
