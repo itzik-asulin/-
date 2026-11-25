@@ -49,8 +49,24 @@ a{color:var(--accent)}
 .num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate;white-space:nowrap}
 .wrap{max-width:1440px;margin:0 auto;padding:0 24px}
 
-/* פס עליון */
-.topbar{background:var(--surface);border-bottom:1px solid var(--line);margin-bottom:22px}
+/* פס עליון כחול: הכותרת בתוכו, וכרטיסי הסיכום עולים עליו */
+.topbar{--band:#1d3b66;background:var(--band);color:#fff;padding-bottom:68px;margin-bottom:-68px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .topbar{--band:#15233a}}
+:root[data-theme="dark"] .topbar{--band:#15233a}
+.topbar :focus-visible{outline-color:#fff}
+.topbar .brand h1{color:#fff}
+.topbar .brand p{color:rgba(255,255,255,.72)}
+.topbar .logo{background:#fff;color:#1d3b66}
+.topbar .period label{color:rgba(255,255,255,.78)}
+.topbar input[type=date]{border-color:transparent;background:#fff;color:#101828;color-scheme:light}
+.topbar .btn{background:transparent;border-color:rgba(255,255,255,.35);color:#fff}
+.topbar .btn:hover{background:rgba(255,255,255,.12)}
+.topbar .btn.primary{background:#fff;border-color:#fff;color:#1d3b66}
+.topbar .btn.primary:hover{background:#e8eef7;border-color:#e8eef7}
+.topbar .avatar{background:rgba(255,255,255,.16);color:#fff}
+.topbar .avatar:hover{box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+.topbar .adot{border-color:var(--band)}
+.topbar + .wrap{position:relative}
 .top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding-top:12px;padding-bottom:12px}
 .brand{flex:1 1 300px;min-width:0;display:flex;align-items:center;gap:12px}
 .logo{width:38px;height:38px;border-radius:10px;background:var(--accent);color:#fff;display:inline-grid;place-items:center;flex:none}
@@ -88,7 +104,7 @@ textarea{width:100%;resize:vertical}
 .adot.off{background:var(--bad)}
 
 /* כפתור צילום: מופיע רק בטלפון */
-.cam-btn{display:none;align-items:center;justify-content:center;gap:10px;min-height:56px;border-radius:12px;background:var(--accent);color:#fff;font-size:16.5px;font-weight:600;cursor:pointer;margin-bottom:14px}
+.cam-btn{display:none;align-items:center;justify-content:center;gap:10px;min-height:56px;border-radius:12px;background:var(--surface);color:var(--accent);font-size:16.5px;font-weight:600;cursor:pointer;margin-bottom:14px;box-shadow:0 2px 8px rgba(16,24,40,.12)}
 .cam-btn input{display:none}
 
 /* באנר */
@@ -244,7 +260,7 @@ td.dt{font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap;colo
 @media (max-width:700px){
   body{padding-bottom:72px}
   .wrap{padding:0 16px}
-  .topbar{margin-bottom:16px}
+  .topbar{padding-bottom:44px;margin-bottom:-44px}
   .top{gap:10px}
   .top{flex-wrap:wrap}
   .brand{flex:1 1 0;min-width:0;gap:10px}
