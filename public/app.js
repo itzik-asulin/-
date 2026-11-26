@@ -282,7 +282,8 @@ function loadDemo(){
     doc('d8','2026-11-05','Zoom Video Communications','receipt',15.99,{ currency: 'USD', foreign: true, vat: null }),
     doc('d9','2026-10-25','מגה ספורט','tax_invoice_receipt',349,{ review: 'pending', taxId: '513456789', desc: 'נעלי ספורט' }),
     doc('d10','2026-11-01','הוט מובייל','tax_invoice',75,{ linkOnly: true, desc: 'החשבונית בקישור בלבד', review: 'pending', number: '' }),
-    doc('d11','2026-10-01','יד שרה','receipt',180,{ vat: null, desc: 'קבלה על תרומה, סעיף 46' })
+    doc('d11','2026-10-01','יד שרה','receipt',180,{ vat: null, desc: 'קבלה על תרומה, סעיף 46' }),
+    doc('d12','2026-11-12','דפוס הצפון בע"מ','tax_invoice',7080,{ taxId: '514223344', desc: 'הדפסת חוברות שמאות' })
   ];
   const em = (id, date, from, subject, status, docIds = [], note = '') => ({ id, threadId: id, date, from, subject, viewUrl: null, status, docIds, note });
   S.emails = [
@@ -363,7 +364,7 @@ function addDocs(res, ctx){
       date: parseDate(str(x.date)) || ctx.fallbackDate || null, amount: amount == null ? null : Math.abs(amount), currency,
       vat: num(x.vat), number: str(x.number), dir: x.direction === 'income' ? 'income' : 'expense',
       exempt: !!x.exempt, foreign: !!x.foreign || currency !== 'ILS', linkOnly: !!x.linkOnly,
-      cardLast4: str(x.cardLast4), desc: str(x.description), review: 'pending'
+      cardLast4: str(x.cardLast4), desc: str(x.description), allocNum: str(x.allocationNumber).replace(/\D/g, ''), review: 'pending'
     };
     const f = ctx.file || ctx.files?.[str(x.source)];
     if (f?.id){ d.fileId = f.id; d.fileUrl = f.url; }
@@ -1097,7 +1098,7 @@ function stats(){
 /* ============================== תצוגה ============================== */
 function chip(st){ const m = ST[st]; return `<span class="chip ${m.cls}">${m.label}</span>`; }
 function money(t){ return `${t.dir === 'in' ? '+' : ''}${fmtMoney(t.amount)}`; }
-function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderFlows(); renderRecurring(); renderDonations(); renderCaps(); }
+function renderAll(){ renderBanner(); renderSummary(); renderJobs(); renderNotes(); renderBank(); renderMail(); renderDocs(); renderReview(); renderReport(); renderFlows(); renderRecurring(); renderDonations(); renderVat(); renderCaps(); }
 function renderBanner(){
   const el = $('#demoBanner');
   if (!S.demo){ el.innerHTML = ''; return; }
@@ -1233,6 +1234,7 @@ function reviewCard(d){
       <label class="field"><span>סכום כולל מע״מ</span><input type="number" step="0.01" data-f="amount" value="${val('amount')}" class="ltr${need('amount')}"></label>
       <label class="field"><span>מע״מ</span><input type="number" step="0.01" data-f="vat" value="${val('vat')}" class="ltr"></label>
       <label class="field"><span>מטבע</span><select data-f="currency">${sel('currency', curs)}</select></label>
+      <label class="field"><span>מספר הקצאה</span><input type="text" data-f="allocNum" inputmode="numeric" value="${val('allocNum')}" class="ltr" placeholder="אם מופיע"></label>
       <label class="field"><span>סוג</span><select data-f="dir">${sel('dir', [['expense', 'הוצאה (קיבלתי)'], ['income', 'הכנסה (הוצאתי ללקוח)']])}</select></label>
       <label class="field"><span>קטגוריה</span><input type="text" data-f="category" list="catList" value="${val('category')}" placeholder="למשל: דלק"></label>
       <label class="field rv-wide"><span>תיאור</span><input type="text" data-f="desc" value="${val('desc')}"></label>
@@ -1260,6 +1262,7 @@ function readReview(card, d){
   const a = parseFloat(v('amount').value); d.amount = isFinite(a) ? a : d.amount;
   const t = parseFloat(v('vat').value); d.vat = isFinite(t) ? t : null;
   d.currency = (v('currency').value || 'ILS').toUpperCase(); d.foreign = d.currency !== 'ILS' || !!d.foreign;
+  d.allocNum = v('allocNum').value.replace(/\D/g, '');
   d.dir = v('dir').value;
   d.category = v('category').value.trim();
   d.desc = v('desc').value.trim();
@@ -1456,6 +1459,116 @@ function renderDonations(){
   ].join('');
 }
 
+/* ============================== מע"מ ============================== */
+// נכון ל-2026: מע"מ 18% (מ-1.1.2025, לפני כן 17%).
+// קיזוז מע"מ תשומות רק מחשבונית מס של ספק ישראלי, ומעל סף מסוים רק עם מספר הקצאה מרשות המסים.
+const vatRate = date => (date || '') >= '2025-01-01' ? 0.18 : 0.17;
+const ALLOC = [['2026-06-01', 5000], ['2026-01-01', 10000], ['2025-01-01', 20000], ['2024-01-01', 25000]];
+const allocLimit = date => (ALLOC.find(([d]) => (date || '') >= d) || [null, Infinity])[1];
+const VAT_DOCS = new Set(['tax_invoice', 'tax_invoice_receipt', 'credit_note']);
+function vatOf(d){
+  const amt = Number(d.amount) || 0, v = Number(d.vat);
+  if (d.vat != null && d.vat !== '' && isFinite(v) && v >= 0 && v < amt) return v;
+  const r = vatRate(d.date); return +(amt * r / (1 + r)).toFixed(2);
+}
+function vatReport(p = period()){
+  const docs = S.docs.filter(d => isApproved(d) && inPeriod(d.date, p)).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const out = [], inp = [], review = [], skipped = [];
+  for (const d of docs){
+    const sg = d.docType === 'credit_note' ? -1 : 1, total = Number(d.amount) || 0;
+    const foreign = d.foreign || (d.currency && d.currency !== 'ILS');
+    const vat = foreign || d.exempt ? 0 : vatOf(d);
+    const row = { d, vat: sg * vat, net: sg * (total - vat), total: sg * total };
+    if (d.dir === 'income'){
+      // רק חשבונית מס יוצרת מע"מ עסקאות. קבלה על חשבונית שכבר הוצאה לא נספרת שוב
+      if (VAT_DOCS.has(d.docType) && !d.exempt && !foreign) out.push(row);
+      continue;
+    }
+    if (foreign){ skipped.push({ ...row, why: 'ספק מחו״ל, אין מע״מ ישראלי' }); continue; }
+    if (d.exempt){ skipped.push({ ...row, why: 'עוסק פטור, אין מע״מ' }); continue; }
+    if (!VAT_DOCS.has(d.docType)){ skipped.push({ ...row, why: `${DOC_TYPES[d.docType] || 'מסמך'}: צריך חשבונית מס כדי לקזז` }); continue; }
+    if (sg > 0 && row.net > allocLimit(d.date) && !d.allocNum){ review.push({ ...row, why: `מעל ${fmtMoney(allocLimit(d.date))} לפני מע״מ, וחסר מספר הקצאה` }); continue; }
+    inp.push(row);
+  }
+  const s = list => +list.reduce((a, r) => a + r.vat, 0).toFixed(2);
+  const sn = list => +list.reduce((a, r) => a + r.net, 0).toFixed(2);
+  const outVat = s(out), inVat = s(inp);
+  return { p, out, inp, review, skipped, outVat, inVat, outNet: sn(out), inNet: sn(inp), reviewVat: s(review), net: +(outVat - inVat).toFixed(2), pending: S.docs.filter(d => d.review === 'pending' && inPeriod(d.date, p)).length };
+}
+function vatPresets(){
+  const t = todayISO(), cur = t.slice(0, 7), prev = prevYm(cur);
+  const m = +prev.slice(5, 7), biStart = `${prev.slice(0, 4)}-${pad(m % 2 ? m : m - 1)}`;
+  return { month: { from: prev + '-01', to: monthEnd(prev) }, bi: { from: biStart + '-01', to: monthEnd(nextYm(biStart)) } };
+}
+function vatTable(rows, kind){
+  if (!rows.length) return '<div class="empty">אין מסמכים.</div>';
+  const who = r => kind === 'out' ? (r.d.customer || r.d.desc || r.d.vendor) : r.d.vendor;
+  const head = `<thead><tr><th>תאריך</th><th>${kind === 'out' ? 'לקוח' : 'ספק'}</th><th>${kind === 'skip' || kind === 'review' ? 'למה' : kind === 'out' ? 'סוג' : 'ח.פ'}</th><th>מספר</th><th style="text-align:end">לפני מע״מ</th><th style="text-align:end">מע״מ</th><th style="text-align:end">סה״כ</th><th></th></tr></thead>`;
+  return `<div class="tbl-wrap"><table class="vt">${head}<tbody>${rows.map(r => `<tr${r.total < 0 ? ' class="neg"' : ''}>
+    <td class="dt">${fmtDateLong(r.d.date)}</td>
+    <td>${esc(who(r) || '—')}${r.d.docType === 'credit_note' ? ' <span class="chip muted">זיכוי</span>' : ''}</td>
+    <td class="${kind === 'skip' || kind === 'review' ? 'why' : 'muted'}">${esc(kind === 'skip' || kind === 'review' ? r.why : kind === 'out' ? DOC_TYPES[r.d.docType] : (r.d.taxId || '—'))}</td>
+    <td class="muted">${esc(r.d.number || '')}${r.d.allocNum ? `<div class="sub">הקצאה ${esc(r.d.allocNum)}</div>` : ''}</td>
+    <td class="amt">${esc(fmtMoney(r.net))}</td><td class="amt vv">${esc(fmtMoney(r.vat))}</td><td class="amt">${esc(fmtMoney(r.total))}</td>
+    <td><button class="btn small ghost" data-act="doc" data-id="${r.d.id}" type="button">${kind === 'review' ? 'הוסף מספר הקצאה' : 'פרטים'}</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderVat(){
+  const r = vatReport(), pre = vatPresets();
+  const pay = r.net >= 0;
+  const isP = x => r.p.from === x.from && r.p.to === x.to;
+  $('#tab-vat').innerHTML = [
+    `<div class="report-bar"><div class="grow"><b>מע״מ של ${esc(periodLabel(r.p))}</b><div class="muted" style="font-size:12.5px">לפי תאריך המסמך. לשינוי התקופה, בחר תאריכים בפס העליון או:</div></div><div class="actions">
+      <button class="btn small${isP(pre.month) ? ' primary' : ''}" data-act="vat-period" data-kind="month" type="button">${esc(periodLabel(pre.month))}</button>
+      <button class="btn small${isP(pre.bi) ? ' primary' : ''}" data-act="vat-period" data-kind="bi" type="button">${esc(periodLabel(pre.bi))}</button>
+      <button class="btn small" data-act="pdf" type="button">הורד PDF</button><button class="btn small" data-act="vat-export" type="button">ייצוא לאקסל</button></div></div>`,
+    `<div class="hero ${pay ? 'out' : 'in'}"><div class="hero-k">${pay ? 'מע״מ לתשלום' : 'מע״מ להחזר'} · ${esc(periodLabel(r.p))}</div><div class="hero-v num">${esc(fmtMoney(Math.abs(r.net)))}</div><div class="hero-s">מע״מ עסקאות ${esc(fmtMoney(r.outVat))} פחות מע״מ תשומות ${esc(fmtMoney(r.inVat))}</div></div>`,
+    `<div class="ftiles">
+      <div class="tile static"><div class="k">מע״מ עסקאות (הכנסות)</div><div class="v num">${esc(fmtMoney(r.outVat))}</div><div class="s">על הכנסות של ${esc(fmtMoney(r.outNet))} לפני מע״מ · ${r.out.length === 1 ? 'מסמך אחד' : r.out.length + ' מסמכים'}</div></div>
+      <div class="tile static ok"><div class="k">מע״מ תשומות לקיזוז</div><div class="v num">${esc(fmtMoney(r.inVat))}</div><div class="s">על הוצאות של ${esc(fmtMoney(r.inNet))} לפני מע״מ · ${r.inp.length === 1 ? 'חשבונית אחת' : r.inp.length + ' חשבוניות'}</div></div>
+      <div class="tile static${r.review.length ? ' bad' : ' zero'}"><div class="k">חסר מספר הקצאה</div><div class="v num">${esc(fmtMoney(r.reviewVat))}</div><div class="s">${r.review.length ? `${r.review.length === 1 ? 'חשבונית אחת שלא נכנסה' : r.review.length + ' חשבוניות שלא נכנסו'} לקיזוז` : 'אין'}</div></div>
+      <div class="tile static zero"><div class="k">לא נכלל בקיזוז</div><div class="v num">${r.skipped.length}</div><div class="s">קבלות, אישורי תשלום, ספקים מחו״ל ועוסקים פטורים</div></div>
+    </div>`,
+    `<div class="note info" style="margin:0">מע״מ ${Math.round(vatRate(r.p.to) * 100)}%. החישוב לפי מסמכים שאישרת${r.pending ? `, ו-${r.pending === 1 ? 'מסמך אחד שממתין' : r.pending + ' מסמכים שממתינים'} לאישור לא נכלל${r.pending === 1 ? '' : 'ו'}` : ''}. הוא לא מתחשב בהגבלות על קיזוז מע״מ ברכב, בכיבוד ובטלפון, ולא בהוצאות מעורבות. זו הערכה לפני הדיווח, ואת הדוח עצמו מגיש רואה החשבון.</div>`,
+    `<div class="card"><div class="card-h"><h2>עסקאות: חשבוניות שהוצאת</h2><span class="meta">${esc(fmtMoney(r.outVat))} מע״מ</span></div><div class="card-b">${vatTable(r.out, 'out')}</div></div>`,
+    `<div class="card"><div class="card-h"><h2>תשומות: חשבוניות מס מספקים</h2><span class="meta">${esc(fmtMoney(r.inVat))} מע״מ לקיזוז</span></div><div class="card-b">${vatTable(r.inp, 'in')}</div></div>`,
+    r.review.length ? `<div class="card"><div class="card-h"><h2>חשבוניות שחסר בהן מספר הקצאה</h2><span class="meta">בלי מספר הקצאה אי אפשר לקזז את המע״מ. אם המספר מופיע בחשבונית, הוסף אותו והיא תיכנס לחישוב</span></div><div class="card-b">${vatTable(r.review, 'review')}</div></div>` : '',
+    r.skipped.length ? `<div class="card"><details><summary class="card-h" style="cursor:pointer"><h2>לא נכלל בקיזוז</h2><span class="meta">${r.skipped.length === 1 ? 'מסמך אחד' : r.skipped.length + ' מסמכים'}. לחץ להצגה</span></summary><div class="card-b">${vatTable(r.skipped, 'skip')}</div></details></div>` : ''
+  ].join('');
+}
+function vatExport(){
+  if (!window.XLSX){ toast(errText({ code: 'no_xlsx' })); return; }
+  const r = vatReport();
+  const rows = (list, kind) => list.map(x => [fmtDateLong(x.d.date), kind === 'out' ? (x.d.customer || x.d.desc || x.d.vendor) : x.d.vendor, x.d.taxId || '', DOC_TYPES[x.d.docType] || '', x.d.number || '', x.d.allocNum || '', +x.net.toFixed(2), +x.vat.toFixed(2), +x.total.toFixed(2), x.why || '']);
+  const head = ['תאריך', 'שם', 'ח.פ', 'סוג מסמך', 'מספר', 'מספר הקצאה', 'לפני מע״מ', 'מע״מ', 'סה״כ', 'הערה'];
+  const wb = XLSX.utils.book_new();
+  const add = (name, aoa, w) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = w.map(x => ({ wch: x })); XLSX.utils.book_append_sheet(wb, ws, name); };
+  const W = [11, 26, 12, 16, 10, 12, 12, 10, 12, 34];
+  add('סיכום', [['Ka-Ching · חישוב מע״מ'], [`תקופה: ${periodLabel(r.p)} (${fmtDateLong(r.p.from)} עד ${fmtDateLong(r.p.to)})`], [],
+    ['', 'לפני מע״מ', 'מע״מ'], ['עסקאות', r.outNet, r.outVat], ['תשומות לקיזוז', r.inNet, r.inVat], [r.net >= 0 ? 'מע״מ לתשלום' : 'מע״מ להחזר', '', Math.abs(r.net)], [],
+    ['חסר מספר הקצאה (לא קוזז)', '', r.reviewVat], [], ['הערכה בלבד. לא כולל הגבלות קיזוז ברכב, כיבוד וטלפון.']], [28, 14, 14]);
+  add('עסקאות', [head, ...rows(r.out, 'out')], W);
+  add('תשומות', [head, ...rows(r.inp, 'in')], W);
+  if (r.review.length) add('חסר מספר הקצאה', [head, ...rows(r.review, 'in')], W);
+  if (r.skipped.length) add('לא נכלל', [head, ...rows(r.skipped, 'in')], W);
+  wb.Workbook = { Views: [{ RTL: true }] };
+  XLSX.writeFile(wb, `מעמ-${r.p.from}-עד-${r.p.to}.xlsx`);
+}
+function vatPrintHtml(){
+  const r = vatReport(), biz = (S.settings.bizNames.split(',')[0] || '').trim();
+  const t = (list, kind) => list.length ? `<table><thead><tr><th>תאריך</th><th>${kind === 'out' ? 'לקוח' : 'ספק'}</th><th>${kind === 'out' ? 'סוג' : 'ח.פ'}</th><th>מספר</th><th class="amt">לפני מע״מ</th><th class="amt">מע״מ</th><th class="amt">סה״כ</th></tr></thead><tbody>${list.map(x => `<tr><td class="dt">${fmtDateLong(x.d.date)}</td><td>${esc(kind === 'out' ? (x.d.customer || x.d.desc || x.d.vendor) : x.d.vendor)}${x.why ? `<div class="sub">${esc(x.why)}</div>` : ''}</td><td class="sub">${esc(kind === 'out' ? DOC_TYPES[x.d.docType] : (x.d.taxId || ''))}</td><td>${esc(x.d.number || '')}</td><td class="amt">${esc(fmtMoney(x.net))}</td><td class="amt"><b>${esc(fmtMoney(x.vat))}</b></td><td class="amt">${esc(fmtMoney(x.total))}</td></tr>`).join('')}</tbody></table>` : '<div class="none">אין.</div>';
+  return `<header class="p-head"><div><div class="p-brand">Ka-Ching</div><div class="p-title">חישוב מע״מ · ${esc(periodLabel(r.p))}</div>${biz ? `<div class="p-biz">${esc(biz)}</div>` : ''}</div><div class="p-meta">תקופה: ${fmtDateLong(r.p.from)} עד ${fmtDateLong(r.p.to)}<br>הופק: ${fmtDateLong(todayISO())}</div></header>
+    <section class="p-sec p-summary"><h2 style="border-color:#1d3b66">סיכום</h2><table class="sumt"><thead><tr><th></th><th class="amt">לפני מע״מ</th><th class="amt">מע״מ</th></tr></thead><tbody>
+      <tr><td>עסקאות</td><td class="amt">${esc(fmtMoney(r.outNet))}</td><td class="amt">${esc(fmtMoney(r.outVat))}</td></tr>
+      <tr><td>תשומות לקיזוז</td><td class="amt">${esc(fmtMoney(r.inNet))}</td><td class="amt">${esc(fmtMoney(r.inVat))}</td></tr>
+      <tr class="tot"><td>${r.net >= 0 ? 'מע״מ לתשלום' : 'מע״מ להחזר'}</td><td></td><td class="amt">${esc(fmtMoney(Math.abs(r.net)))}</td></tr></tbody></table>
+      <div class="meta">מע״מ ${Math.round(vatRate(r.p.to) * 100)}%, לפי מסמכים שאושרו. הערכה בלבד: לא כולל הגבלות קיזוז ברכב, כיבוד וטלפון.${r.review.length ? ` ${r.review.length} חשבוניות בלי מספר הקצאה (${esc(fmtMoney(r.reviewVat))} מע״מ) לא קוזזו.` : ''}</div></section>
+    <section class="p-sec"><h2 style="border-color:#067647">עסקאות <span class="cnt">${r.out.length}</span></h2>${t(r.out, 'out')}</section>
+    <section class="p-sec"><h2 style="border-color:#1d3b66">תשומות לקיזוז <span class="cnt">${r.inp.length}</span></h2>${t(r.inp, 'in')}</section>
+    ${r.review.length ? `<section class="p-sec"><h2 style="border-color:#b42318">חסר מספר הקצאה <span class="cnt">${r.review.length}</span></h2>${t(r.review, 'in')}</section>` : ''}
+    ${r.skipped.length ? `<section class="p-sec"><h2 style="border-color:#98a2b3">לא נכלל בקיזוז <span class="cnt">${r.skipped.length}</span></h2>${t(r.skipped, 'in')}</section>` : ''}
+    <footer class="p-foot">הופק ב-Ka-Ching.</footer>`;
+}
+
 /* מצב החיבורים: נקודה ליד עיגול המשתמש. הפירוט המלא בחלון ההגדרות, ובתחתית הדף מופיעות רק תקלות */
 function capsItems(){
   if (!CAP.me) return [];
@@ -1530,6 +1643,7 @@ function openDoc(id){
       <div class="field"><label for="dn">מספר מסמך</label><input type="text" id="dn" value="${esc(d.number)}"></div>
       <div class="field"><label for="dtx">ח.פ / ע.מ</label><input type="text" id="dtx" inputmode="numeric" value="${esc(d.taxId || '')}" style="direction:ltr"></div>
       <div class="field"><label for="dvat">מע״מ</label><input type="number" step="0.01" id="dvat" value="${d.vat ?? ''}" style="direction:ltr"></div>
+      <div class="field"><label for="dal">מספר הקצאה</label><input type="text" id="dal" inputmode="numeric" value="${esc(d.allocNum || '')}" style="direction:ltr" placeholder="מופיע בחשבונית מס"></div>
       <div class="field"><label for="dcat">קטגוריה</label><input type="text" id="dcat" list="catList2" value="${esc(d.category || '')}"><datalist id="catList2">${categoryList().map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></div>
       <div class="field"><label for="dr">כיוון</label><select id="dr"><option value="expense" ${d.dir === 'expense' ? 'selected' : ''}>הוצאה (קיבלתי)</option><option value="income" ${d.dir === 'income' ? 'selected' : ''}>הכנסה (הוצאתי ללקוח)</option></select></div>
       <div class="field"><label for="de">&nbsp;</label><label style="flex-direction:row;align-items:center;gap:6px;font-size:14px;color:var(--ink)"><input type="checkbox" id="de" ${d.exempt ? 'checked' : ''}> הספק עוסק פטור</label></div>
@@ -1643,12 +1757,13 @@ async function driveBackfill(){
   else toast(fatal ? errText(fatal) : `${ok} חשבוניות הועתקו ל-Google Drive${failed ? `. ${failed} לא הצליחו, למשל כי הקובץ כבר לא נמצא במייל` : ''}.`, 7000);
 }
 function syncInputs(){ const p = period(); $('#pFrom').value = p.from; $('#pTo').value = p.to; $('#gq').value = S.settings.gmailQuery || DEFAULT_QUERY; }
-const TABS = ['board','income','expense','recurring','donations','review','report','ask'];
+const TABS = ['board','income','expense','vat','recurring','donations','review','report','ask'];
 function switchTab(tab){
   UI.tab = tab;
   document.body.dataset.tab = tab;
   for (const b of $$('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
   for (const t of TABS) $('#tab-' + t).classList.toggle('hidden', t !== tab);
+  if (matchMedia('(max-width:700px)').matches) $('#tabbtn-' + tab)?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   if (location.hash !== '#' + tab) history.replaceState(null, '', location.pathname + '#' + tab);
 }
 
@@ -1656,8 +1771,9 @@ function switchTab(tab){
 // "הורד PDF" פותח את חלון ההדפסה של הדפדפן עם דוח נקי, ושם בוחרים "שמירה כ-PDF".
 // גם Ctrl+P רגיל מדפיס את אותו דוח נקי ולא את המסך.
 function periodLabel(p){
-  const ym = p.from.slice(0, 7);
+  const ym = p.from.slice(0, 7), ym2 = p.to.slice(0, 7);
   if (p.from === ym + '-01' && p.to === monthEnd(ym)) return monthName(ym);
+  if (p.from === ym + '-01' && p.to === monthEnd(ym2) && ym.slice(0, 4) === ym2.slice(0, 4)) return `${HE_MONTHS[+ym.slice(5, 7) - 1]}–${HE_MONTHS[+ym2.slice(5, 7) - 1]} ${ym.slice(0, 4)}`;
   return `${fmtDateLong(p.from)} עד ${fmtDateLong(p.to)}`;
 }
 function printHtml(){
@@ -1706,9 +1822,10 @@ window.addEventListener('beforeprint', () => {
   let root = $('#printRoot');
   if (!root){ root = document.createElement('div'); root.id = 'printRoot'; document.body.append(root); }
   rederive();
-  root.innerHTML = printHtml();
+  const vat = UI.tab === 'vat';
+  root.innerHTML = vat ? vatPrintHtml() : printHtml();
   if (printTitle == null) printTitle = document.title;
-  document.title = `Ka-Ching דוח חוסרים ${periodLabel(period()).replace(/\//g, '-')}`;
+  document.title = `Ka-Ching ${vat ? 'מעמ' : 'דוח חוסרים'} ${periodLabel(period()).replace(/\//g, '-')}`;
 });
 window.addEventListener('afterprint', () => {
   if (printTitle != null){ document.title = printTitle; printTitle = null; }
@@ -1899,6 +2016,7 @@ document.addEventListener('click', e => {
       d.number = $('#dn').value.trim(); d.dir = $('#dr').value; d.exempt = $('#de').checked;
       d.taxId = $('#dtx').value.replace(/[^\d-]/g, ''); d.category = $('#dcat').value.trim();
       const vt = parseFloat($('#dvat').value); d.vat = isFinite(vt) ? vt : null;
+      d.allocNum = $('#dal').value.replace(/\D/g, '');
       markDirty('docs'); localMatch(); rederive(); renderAll(); closeModal(); toast('המסמך נשמר.'); break;
     }
     case 'del-doc': {
@@ -1916,6 +2034,8 @@ document.addEventListener('click', e => {
     case 'copy-req': { const g = UI.missingGroups?.[+el.dataset.group]; if (g) copyText(requestText(g)); break; }
     case 'export': exportXlsx(); break;
     case 'pdf': window.print(); break;
+    case 'vat-export': vatExport(); break;
+    case 'vat-period': { const x = vatPresets()[el.dataset.kind]; if (x){ S.settings.from = x.from; S.settings.to = x.to; markDirty('settings'); syncInputs(); renderAll(); } break; }
     case 'save-settings': {
       S.settings.bizNames = $('#setBiz').value.trim(); S.settings.aiMode = $('#setMode').value;
       S.settings.maxThreads = Math.max(10, Math.min(2000, parseInt($('#setMax').value) || 300));
