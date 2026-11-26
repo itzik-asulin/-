@@ -487,3 +487,11 @@ details > summary.card-h::-webkit-details-marker{display:none}
   table.vt td:nth-child(8){grid-column:2;grid-row:3}
   table.vt td:nth-child(4),table.vt td:nth-child(5){display:none}
 }
+
+.vat-heroes{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.hero.alt{border-top-color:var(--ok);background:var(--surface)}
+.hero.alt .hero-v{color:var(--ok);font-size:36px}
+.note.warnn{background:var(--warn-soft);color:var(--ink)}
+.note.warnn .hint-row{display:inline-flex;align-items:center;gap:8px;margin:6px 0 0 14px}
+.tile.warn .v{color:var(--warn)}
+@media (max-width:900px){ .vat-heroes{grid-template-columns:1fr} }
